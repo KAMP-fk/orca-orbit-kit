@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Prepare local role wiring without launching agents or changing unrelated files."""
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+root = Path(__file__).resolve().parent.parent
+subprocess.run([sys.executable, str(root / 'install.py')], check=True)
+subprocess.run([sys.executable, str(root / 'install.py'), '--check'], check=True)
+for executable in ('codex', 'claude', 'orca'):
+    if not shutil.which(executable):
+        raise SystemExit('Missing executable: ' + executable)
+print('Setup ready: Melon / Kiwi = Codex; Potato = Claude Opus 5.5 / high')

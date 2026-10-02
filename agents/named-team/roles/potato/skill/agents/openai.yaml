@@ -1,0 +1,4 @@
+interface:
+  display_name: "Potato"
+  short_description: "実装に未関与の担当として差分・設定・テストを確認する検証エージェント"
+  default_prompt: "$potato として、指定した完成差分を独立に確認し、具体的な指摘と検証範囲を報告してください。"

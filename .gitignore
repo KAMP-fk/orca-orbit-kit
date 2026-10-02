@@ -1,0 +1,43 @@
+# Default deny: only the engineering sources and their offline tests are tracked.
+/*
+!/.gitignore
+!/AGENTS.md
+!/VERSION-CONTROL.md
+!/HANDOFF-agents-git-20261002.md
+!/agents/
+/agents/*
+!/agents/linear-inreview-reviewer/
+!/agents/review-relay/
+!/agents/named-team/
+!/tests/
+
+# Runtime evidence, local verification output, and backups never enter history.
+**/state/
+**/.state
+**/.state.*
+**/log/
+**/logs/
+**/*.log
+**/verification/
+**/*bak*
+**/*backup*
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store
+**/node_modules/
+**/.venv/
+
+# Credentials and machine-local configuration, including linked config files.
+**/.env
+**/.env.*
+**/*.token
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/secrets
+**/secrets/**
+**/.codex/
+**/.claude/
+**/credentials*
+**/auth.json

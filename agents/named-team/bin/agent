@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Start a named engineering or review role locally or in an Orca terminal."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+EFFORT = {'melon': 'medium', 'kiwi': 'medium', 'potato': 'high'}
+REVIEW_MODEL = 'claude-opus-5-5'
+
+
+def review_result(raw):
+    """Validate the actual model before publishing a batch review."""
+    result = json.loads(raw)
+    if not isinstance(result, dict) or result.get('type') != 'result' or result.get('is_error') is not False:
+        raise ValueError('successful Claude result metadata is missing')
+    session = result.get('session_id')
+    usage = result.get('modelUsage')
+    if not isinstance(session, str) or not session or not isinstance(usage, dict) or len(usage) != 1:
+        raise ValueError('actual session / single model metadata is missing')
+    if next(iter(usage)) not in (REVIEW_MODEL, REVIEW_MODEL + '[1m]') or not isinstance(next(iter(usage.values())), dict):
+        raise ValueError('actual model is not the requested Opus 5.5')
+    if not isinstance(result.get('result'), str) or not result['result'].strip():
+        raise ValueError('review result is empty')
+    return result
+
+
+def main():
+    alias = Path(sys.argv[0]).name.lower()
+    parser = argparse.ArgumentParser(description='Melon / Kiwi は Codex、Potato は Claude Opus 5.5 / high で起動')
+    if alias not in EFFORT:
+        parser.add_argument('role', type=str.lower, choices=sorted(EFFORT))
+    parser.add_argument('--cwd', help='対象 workspace（既定は現在の場所、または --worktree の path）')
+    parser.add_argument('--model', help='今回の明示モデル指定。省略時は各 profile の既定')
+    parser.add_argument('--effort', choices=('low', 'medium', 'high', 'xhigh', 'max', 'ultra'))
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--exec', action='store_true', dest='batch', help='対話画面を開かず今回の依頼を実行')
+    mode.add_argument('--orca', action='store_true', help='Orca に名前付き terminal を作って起動')
+    parser.add_argument('--worktree', help='Orca の対象 path:<絶対パス>（--orca 時のみ）')
+    parser.add_argument('--dry-run', action='store_true', help='起動引数を JSON で確認。セッションを起動しない')
+    parser.add_argument('--json', action='store_true', help='Potato --exec の検証済み Claude result metadata を返す')
+    parser.add_argument('prompt', nargs='?', help='今回の依頼（空白を含む場合は引用符で囲む）')
+    args = parser.parse_intermixed_args()
+    role = alias if alias in EFFORT else args.role
+    if args.json and (role != 'potato' or not args.batch):
+        parser.error('--json は potato --exec と一緒に指定する')
+    if role == 'potato' and ((args.model and args.model != REVIEW_MODEL) or (args.effort and args.effort != 'high')):
+        parser.error('Potato のレビューは claude-opus-5-5 / high を指定する')
+    if args.worktree and not args.orca:
+        parser.error('--worktree は --orca と一緒に指定する')
+    worktree_path = None
+    if args.worktree:
+        if not args.worktree.startswith('path:') or not args.worktree[5:]:
+            parser.error('--worktree は対象を固定する path:<絶対パス> を指定する')
+        worktree_path = Path(args.worktree[5:]).expanduser()
+        if not worktree_path.is_absolute():
+            parser.error('--worktree の path は絶対パスを指定する')
+        worktree_path = worktree_path.resolve()
+    cwd = Path(args.cwd).expanduser().resolve() if args.cwd else worktree_path or Path.cwd().resolve()
+    if worktree_path and cwd != worktree_path:
+        parser.error('--cwd と --worktree の対象 path が一致しない')
+    if not cwd.is_dir():
+        parser.error('workspace が存在しない: ' + str(cwd))
+    if args.batch and (not args.prompt or not args.prompt.strip()):
+        parser.error('--exec には今回の依頼が必要')
+    if args.model is not None and (not args.model.strip() or args.model.startswith('-')):
+        parser.error('--model はモデル ID を指定する')
+    skill = ROOT / 'roles' / role / 'skill' / 'SKILL.md'
+    config_home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))).expanduser().resolve()
+    claude_home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser().resolve()
+    if role == 'potato':
+        profile = ROOT / 'roles/potato/claude/agent.md'
+        installed = claude_home / 'agents/potato.md'
+    else:
+        profile = ROOT / 'roles' / role / 'codex/profile.config.toml'
+        installed = config_home / (role + '.config.toml')
+    if not skill.is_file() or not profile.is_file() or installed.resolve() != profile.resolve() or not installed.is_file():
+        parser.error('role / profile の配線が未完了。named-team/install.py --check を確認する')
+    effort = args.effort or EFFORT[role]
+    if role == 'potato':
+        backend = 'claude'
+        settings = ROOT / 'roles/potato/claude/settings.json'
+        if not settings.is_file():
+            parser.error('Potato の Claude settings が無い')
+        policy = json.loads(settings.read_text())
+        if policy.get('model') != REVIEW_MODEL or policy.get('effortLevel') != 'high' or policy.get('disableAllHooks') is not True or policy.get('permissions', {}).get('disableBypassPermissionsMode') != 'disable':
+            parser.error('Potato の model / effort / permissions 設定が一致しない')
+        definition = {'potato': {'description': 'Independent technical reviewer',
+                      'prompt': skill.read_text().split('\n---\n', 1)[-1].strip(),
+                      'model': REVIEW_MODEL, 'effort': 'high', 'tools': ['Read', 'Glob', 'Grep'],
+                      'permissionMode': 'dontAsk'}}
+        command = ['claude', '--model', REVIEW_MODEL, '--effort', 'high', '--restricted', '--disable-slash-commands',
+                   '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk',
+                   '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+                   '--settings', str(settings), '--agents', json.dumps(definition, ensure_ascii=False),
+                   '--agent', 'potato', '--add-dir', str(skill.parent)]
+        if args.batch:
+            command += ['--print', '--output-format', 'json', '--permission-prompts', 'none']
+        environment = {'CLAUDE_CODE_EFFORT_LEVEL': 'high'}
+        # Setting this variable changes Claude's global config-file location.
+        # Preserve its native default unless the caller explicitly selected one.
+        if os.environ.get('CLAUDE_CONFIG_DIR'):
+            environment['CLAUDE_CONFIG_DIR'] = str(claude_home)
+    else:
+        backend = 'codex'
+        command = ['codex', '-p', role, '-c', 'model_reasoning_effort="' + effort + '"', '-C', str(cwd)]
+        if args.model:
+            command += ['-m', args.model]
+        if args.batch:
+            command += ['exec']
+        environment = {'CODEX_HOME': str(config_home)}
+    executable = shutil.which(backend)
+    if not executable and not args.dry_run:
+        parser.error(backend + ' が見つからない')
+    if executable:
+        command[0] = str(Path(executable).absolute())
+    if args.prompt is not None:
+        prompt = 'あなたは ' + role.capitalize() + '。最初に ' + str(skill) + ' を読み、現在のユーザー指示と対象プロジェクトの契約を適用してください。\n\n今回の依頼:\n' + args.prompt
+        command += ['--', prompt]
+    if args.orca:
+        if os.environ.get('ORCA_ENVIRONMENT') or os.environ.get('ORCA_PAIRING_CODE'):
+            parser.error('この role はローカル配線。remote 環境指定のある shell からは起動しない')
+        orca = os.environ.get('ORCA_CLI_COMMAND') or ('orca-dev' if os.environ.get('ORCA_DEV_REPO_ROOT') else 'orca-ide' if sys.platform.startswith('linux') else 'orca')
+        orca_executable = shutil.which(orca)
+        if orca_executable:
+            orca = str(Path(orca_executable).absolute())
+        elif not args.dry_run:
+            parser.error('Orca CLI が見つからない: ' + orca)
+        # Pin validated config and effort even when Orca starts a fresh shell.
+        terminal_command = ['/usr/bin/env'] + [key + '=' + value for key, value in environment.items()] + command
+        # Orca's terminal process may start outside the selected worktree.
+        terminal_command = ['/bin/sh', '-c', 'cd ' + shlex.quote(str(cwd)) + ' && exec ' + shlex.join(terminal_command)]
+        launch = [orca, 'terminal', 'create', '--worktree', 'path:' + str(cwd),
+                  '--title', role.capitalize(), '--command', shlex.join(terminal_command), '--json']
+    else:
+        launch = command
+    if args.dry_run:
+        print(json.dumps({'role': role, 'displayName': role.capitalize(), 'cwd': str(cwd),
+                          'profile': str(installed), 'skill': str(skill), 'backend': backend,
+                          'requestedModel': REVIEW_MODEL if role == 'potato' else args.model,
+                          'requestedEffort': effort, 'mode': 'orca' if args.orca else 'exec' if args.batch else 'interactive',
+                          'argv': launch, 'startsSession': False}, ensure_ascii=False, indent=2))
+        return 0
+    try:
+        if args.orca:
+            # The receipt proves terminal creation; it does not assert task completion.
+            return subprocess.run(launch, cwd=str(cwd)).returncode
+        os.chdir(cwd)
+        child_env = os.environ.copy()
+        child_env.update(environment)
+        if role == 'potato' and args.batch:
+            completed = subprocess.run(command, env=child_env, text=True, capture_output=True)
+            if completed.returncode:
+                if completed.stderr:
+                    print(completed.stderr, file=sys.stderr, end='')
+                return completed.returncode
+            try:
+                result = review_result(completed.stdout)
+            except (ValueError, TypeError) as exc:
+                print('Potato: BLOCKED — ' + str(exc), file=sys.stderr)
+                return 3
+            print(json.dumps(result, ensure_ascii=False) if args.json else result['result'])
+            return 0
+        os.execvpe(command[0], command, child_env)
+    except OSError as exc:
+        print('起動できない: ' + str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

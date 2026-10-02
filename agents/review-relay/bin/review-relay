@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# review-relay — review:passed を中継する専任。これ以外のことをしない。
+#
+# 使い方:
+#   review-relay <PR番号> <レビュー記録のURL> [--repo <owner/name>] [--dry-run]
+#
+# 設計の要点:
+#   - **特権は script 側にある。**判定するモデルは read-only サンドボックスで
+#     ネットワークも遮断されており、自分では POST できない。
+#   - **機械で確かめられることは script が先に確かめる**（fail-closed）。
+#     どれか1つでも欠ければ、モデルを呼ばずに拒否する。
+#   - **モデルは1行だけ返す。**`RELAY: POST` か `RELAY: REFUSE — 理由`。
+#     それ以外は実行しない。
+#   - **やらないこと**: merge / push / ファイル編集 / ラベル変更 / Draft 解除 / issue 更新。
+#
+set -euo pipefail
+
+readonly AGENT_DIR="${HOME}/orca/agents/review-relay"
+readonly LOG_DIR="${AGENT_DIR}/log"
+readonly CODEX="${CODEX_BIN:-/opt/homebrew/bin/codex}"
+readonly DEFAULT_REPO="KAMP-fk/concafe-techo"
+
+die()  { printf '拒否: %s\n' "$*" >&2; exit 1; }
+note() { printf '  %s\n' "$*"; }
+
+pr=""; record=""; repo="${DEFAULT_REPO}"; dry=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo)    repo="${2:?--repo に値が無い}"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    *) if [ -z "$pr" ]; then pr="$1"; elif [ -z "$record" ]; then record="$1";
+       else die "引数が多い: $1"; fi; shift ;;
+  esac
+done
+
+[ -n "$pr" ]     || die "PR 番号が無い。使い方: review-relay <PR番号> <レビュー記録のURL>"
+[ -n "$record" ] || die "レビュー記録の URL が無い。**記録の無い中継はしない**"
+[[ "$pr" =~ ^[0-9]+$ ]] || die "PR 番号が数字でない: ${pr}"
+command -v gh >/dev/null || die "gh が無い"
+[ -x "$CODEX" ]          || die "codex が無い: ${CODEX}"
+
+mkdir -p "$LOG_DIR"
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+facts="${work}/facts.md"
+
+printf '中継専任 review-relay — PR #%s (%s)\n\n' "$pr" "$repo"
+
+# ── 1. 事実を集める（読み取りだけ）────────────────────────────────────
+note "事実を集める"
+pr_json="$(gh pr view "$pr" --repo "$repo" \
+  --json number,title,isDraft,headRefName,headRefOid,baseRefName,labels,mergeStateStatus,url)" \
+  || die "PR #${pr} を読めない"
+
+head_sha="$(jq -r '.headRefOid' <<<"$pr_json")"
+is_draft="$(jq -r '.isDraft'    <<<"$pr_json")"
+head_ref="$(jq -r '.headRefName'<<<"$pr_json")"
+labels="$(jq -r '[.labels[].name] | join(",")' <<<"$pr_json")"
+merge_state="$(jq -r '.mergeStateStatus' <<<"$pr_json")"
+pr_url="$(jq -r '.url' <<<"$pr_json")"
+title="$(jq -r '.title' <<<"$pr_json")"
+
+checks="$(gh pr checks "$pr" --repo "$repo" 2>/dev/null || true)"
+statuses="$(gh api "repos/${repo}/commits/${head_sha}/statuses" 2>/dev/null || echo '[]')"
+
+# レビュー記録の本文を取る（PR / issue コメントの URL、またはローカルファイル）
+record_body=""
+if [ -f "$record" ]; then
+  record_body="$(cat "$record")"
+elif [[ "$record" =~ issuecomment-([0-9]+) ]]; then
+  record_body="$(gh api "repos/${repo}/issues/comments/${BASH_REMATCH[1]}" -q .body 2>/dev/null || true)"
+elif [[ "$record" =~ /pull/([0-9]+)#?.*$ ]]; then
+  record_body="$(gh api "repos/${repo}/issues/${BASH_REMATCH[1]}/comments" \
+                   -q '.[].body' 2>/dev/null | tail -c 20000 || true)"
+fi
+[ -n "$record_body" ] || die "レビュー記録の本文を取れない: ${record}
+       **本文を読めないものを中継しない。**ローカルファイルのパスを渡してもよい"
+
+# ── 2. 機械で確かめられる門（fail-closed。欠けたらモデルを呼ばない）──
+note "機械で確かめる門を通す"
+
+[ "$is_draft" = "false" ] || die "PR が Draft。**Draft の中継はしない**"
+
+grep -qE 'risk:(high|low)' <<<"$labels" \
+  || die "risk の分類ラベルが無い（risk:high / risk:low のどちらも）。
+       **ラベルの不在を低リスクの証拠にしない**(CAF-283 と同じ fail-closed)"
+
+if jq -e --arg c review:passed \
+     '[.[] | select(.context==$c)] | map(select(.state=="success")) | length > 0' \
+     <<<"$statuses" >/dev/null 2>&1; then
+  die "この head には既に review:passed が success で付いている。
+       **二重に出さない。**head=${head_sha}"
+fi
+
+if [ -n "$checks" ]; then
+  if grep -qiE '	(fail|failing|error|cancel)' <<<"$checks"; then
+    die "失敗している check がある。**緑でないものを中継しない**"
+  fi
+  if grep -qiE '	pending' <<<"$checks"; then
+    die "pending の check がある。**走り終わる前に中継しない**"
+  fi
+fi
+
+grep -qF "$head_sha" <<<"$record_body" \
+  || die "レビュー記録に head の full SHA が逐語で無い: ${head_sha}
+       **どの SHA を見たか書いていない記録を中継しない**(CAF-288 / ADR-062)"
+
+note "機械の門: 全部通った"
+
+# ── 3. 事実シートを書く（モデルはこれだけを読む）─────────────────────
+cat > "$facts" <<FACTS
+# 中継の判定に使う事実（これ以外は見ない）
+
+PR            : #${pr} ${title}
+URL           : ${pr_url}
+head branch   : ${head_ref}
+head SHA      : ${head_sha}
+Draft         : ${is_draft}
+labels        : ${labels}
+mergeState    : ${merge_state}
+
+## check の一覧
+\`\`\`
+${checks}
+\`\`\`
+
+## この head に既に付いている commit status
+\`\`\`
+$(jq -r '.[] | "\(.context)\t\(.state)"' <<<"$statuses" | sort -u)
+\`\`\`
+
+## レビュー記録の本文（逐語）
+\`\`\`
+${record_body}
+\`\`\`
+FACTS
+
+# ── 4. 判定の段（read-only・ネットワーク遮断のモデル）────────────────
+note "判定の段を回す（read-only・ネットワーク遮断）"
+prompt="$(cat <<'PROMPT'
+あなたは review:passed を中継するかどうかだけを判定する。実装も修正も指摘対応もしない。
+
+添付の事実シートだけを読み、次のすべてが満たされているかを確かめよ。
+推測で補わない。書いていないことは「無い」として扱う（fail-closed）。
+
+1. レビュー記録の判定が PASS であること。
+   CHANGES_REQUIRED / BLOCKED / 条件つき PASS は、すべて不可。
+2. レビュー記録が、事実シートの head SHA を対象にしていること。
+   別の SHA を見た記録の流用は不可。
+3. レビュー記録に、レビュアーが実装・修正・指摘対応に関与していないことが書かれていること。
+   書かれていなければ不可。「たぶん関与していない」で通さない。
+4. 残っている指摘が無いこと。未解決の High / Medium があれば不可。
+   Low が残っている場合は、記録に行き先（issue 番号など）が書かれていれば可。
+   指摘の重さは、記録に書かれた High / Medium / Low をそのまま採る。
+   「PASS を妨げない」「diff の欠陥ではない」「発効の前提条件にすぎない」等の注記があっても、
+   重さは変わらない。重さと注記が食い違う記録は、REFUSE の理由にその食い違いを明記する。
+   指摘が解消したかどうかは、次の両方を満たす判定だけで判断する。
+     (a) 判定した者が、レビュアー本人であるか、または実装・修正・指摘対応・中継の依頼のいずれにも
+         関与していない者であること。
+     (b) その者が解消の事実を自分で確かめ、確かめた方法と結果を記録に書いていること。
+   「確かめられなかった」「他者の観測によれば」は未解消として扱う。
+5. 事実シートの check に失敗や未完了が無いこと。
+
+出力は **1行だけ**。前後に何も書くな。
+
+  RELAY: POST
+または
+  RELAY: REFUSE — <満たされていない項番と、その理由を一文で>
+PROMPT
+)"
+
+verdict_raw="$("$CODEX" exec -p review-relay -c model_reasoning_effort="high" \
+  "${prompt}
+
+--- 事実シート ---
+$(cat "$facts")" </dev/null 2>&1 || true)"
+
+verdict="$(grep -oE '^RELAY: (POST|REFUSE.*)$' <<<"$verdict_raw" | tail -1 || true)"
+[ -n "$verdict" ] || die "判定の段が1行の判定を返さなかった。**読めない判定で中継しない**
+--- 生の出力の末尾 ---
+$(tail -5 <<<"$verdict_raw")"
+
+note "判定: ${verdict}"
+
+ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+audit="${LOG_DIR}/$(date -u +%Y-%m-%d).md"
+{
+  printf '\n## %s  PR #%s  head=%s\n' "$ts" "$pr" "$head_sha"
+  printf -- '- record : %s\n' "$record"
+  printf -- '- labels : %s\n' "$labels"
+  printf -- '- verdict: %s\n' "$verdict"
+} >> "$audit"
+
+if [[ "$verdict" != "RELAY: POST" ]]; then
+  printf '\n%s\n' "$verdict" >&2
+  printf '中継しない。記録: %s\n' "$audit" >&2
+  exit 1
+fi
+
+# ── 5. POST（script だけが行う）───────────────────────────────────────
+if [ "$dry" = 1 ]; then
+  printf '\n--dry-run なので POST しない。判定は POST だった。\n'
+  printf '打つはずだったもの:\n  gh api --method POST repos/%s/statuses/%s -f state=success -f context=review:passed\n' "$repo" "$head_sha"
+  exit 0
+fi
+
+note "review:passed を付ける"
+gh api --method POST "repos/${repo}/statuses/${head_sha}" \
+  -f state=success \
+  -f context=review:passed \
+  -f description="independent review PASS (relayed by review-relay)" \
+  -f target_url="$record" >/dev/null \
+  || die "POST が失敗した。**状態を確かめてから再実行すること**"
+
+printf -- '- posted : review:passed success\n' >> "$audit"
+printf '\n付けた。head=%s\n記録: %s\n' "$head_sha" "$audit"

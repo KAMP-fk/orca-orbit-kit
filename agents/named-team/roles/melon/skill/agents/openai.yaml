@@ -1,0 +1,4 @@
+interface:
+  display_name: "Melon"
+  short_description: "レビュー基盤・証拠パケット・CI照合の改善を担当する開発エージェント"
+  default_prompt: "$melon として、指定したレビュー基盤を調査し、依頼範囲の改善と検証を完了してください。"

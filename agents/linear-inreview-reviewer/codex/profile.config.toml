@@ -1,0 +1,34 @@
+# Peach — Codex プロファイル
+#
+#   codex -p peach -c model_reasoning_effort="high" ...
+#
+# ★ 実測（codex-cli 0.154.0, 2026-09-21）:
+#   プロファイル側の model_reasoning_effort は **効かない**（base config の値が残る）。
+#   reasoning effort はコマンドラインの -c model_reasoning_effort="high" でしか固定できない。
+#   起動スクリプト peach はこれを常にコマンドラインで渡し、
+#   起動バナーの `reasoning effort: high` をプリフライトで検証してから本番を走らせる。
+#   手で codex を起動するときは、この -c を必ず自分で付けること。
+#
+# read-only サンドボックスは書き込みに加えて **ネットワークも遮断**する（実測）。
+# これがこの Agent の read-only 保証の中心。Linear / GitHub への到達は起動スクリプト側で済ませる。
+
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"   # ← 効かない。CLI の -c で上書きすること（上のコメント参照）
+model_verbosity = "medium"
+sandbox_mode = "read-only"
+approval_policy = "never"
+
+# Reviewer はコネクタ／プラグインを使わない（開発作業のみ・外部到達なしの方針）。
+# read-only サンドボックスがネットワークを遮断するため実効的にも到達しないが、明示しておく。
+[plugins."browser@openai-bundled"]
+enabled = false
+[plugins."chrome@openai-bundled"]
+enabled = false
+[plugins."computer-use@openai-bundled"]
+enabled = false
+[plugins."unified-computer-use@openai-bundled"]
+enabled = false
+[plugins."sites@openai-bundled"]
+enabled = false
+[plugins."codex-app-tools@openai-bundled"]
+enabled = false

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Restore named Orca workspaces; reuse connected agents without sending them work."""
+import argparse
+import json
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+FOLDER = Path.home() / '.agents/skills'
+NAMES = {'melon': 'Melon｜レビュー基盤の開発',
+         'kiwi': 'Kiwi｜観測・引継ぎ基盤の開発',
+         'potato': 'Potato｜独立技術レビュー'}
+ORCA = '/usr/local/bin/orca'
+BOOT = ('起動確認です。役割の skill を読み、名前・役割・読み込んだ skill の絶対パスを'
+        '短く日本語で返して、作業対象の指定を待ってください。'
+        'ファイル変更・外部投稿・他エージェントの起動は行わないでください。')
+
+
+def call(*args):
+    result = subprocess.run([ORCA, *args, '--json'], text=True, capture_output=True, check=True)
+    data = json.loads(result.stdout)
+    if data.get('ok') is not True:
+        raise RuntimeError(result.stdout)
+    return data['result']
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('role', nargs='?', choices=NAMES)
+    parser.add_argument('--check', action='store_true', help='Read-only status; do not launch or repair')
+    args = parser.parse_args()
+    if not args.check:
+        subprocess.run([sys.executable, str(ROOT / 'bin/setup')], check=True)
+    repos = [r for r in call('repo', 'list')['repos'] if r['path'] == str(FOLDER)]
+    if not repos:
+        if args.check:
+            raise RuntimeError('Agent folder is not registered in Orca')
+        repos = [call('repo', 'add', '--path', str(FOLDER))['repo']]
+    if len(repos) != 1:
+        raise RuntimeError('Ambiguous agent project; no changes made')
+    repo = repos[0]['id']
+    workspaces = call('worktree', 'list', '--repo', 'id:' + repo)['worktrees']
+    for role in ([args.role] if args.role else NAMES):
+        matches = [w for w in workspaces if w.get('displayName') == NAMES[role] and not w.get('isArchived')]
+        if len(matches) > 1:
+            raise RuntimeError('Ambiguous workspace: ' + role)
+        if not matches:
+            if args.check:
+                raise RuntimeError('Missing workspace: ' + role)
+            matches = [call('worktree', 'create', '--repo', 'id:' + repo,
+                            '--name', NAMES[role], '--no-parent', '--setup', 'skip')['worktree']]
+        wid = matches[0]['id']
+        terminals = call('terminal', 'list', '--worktree', 'id:' + wid)['terminals']
+        backend = 'claude' if role == 'potato' else 'codex'
+        live = [t for t in terminals if t.get('connected') and not t.get('orphaned')
+                and t.get('agentIdentity') == backend]
+        if len(live) > 1:
+            raise RuntimeError('Multiple agents in workspace: ' + role)
+        if live:
+            terminal = live[0]
+            state = 'existing'
+        elif args.check:
+            raise RuntimeError('Agent is not running: ' + role)
+        else:
+            command = shlex.join([str(ROOT / 'bin/agent'), role, '--cwd', str(FOLDER), BOOT])
+            terminal = call('terminal', 'create', '--worktree', 'id:' + wid,
+                            '--title', role.capitalize(), '--command', command)['terminal']
+            state = 'started'
+        print(json.dumps({'role': role, 'workspace': NAMES[role], 'state': state,
+                          'handle': terminal['handle'], 'worktreeId': wid}, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (subprocess.CalledProcessError, RuntimeError, KeyError) as exc:
+        print('Workspace startup blocked: ' + str(exc), file=sys.stderr)
+        raise SystemExit(1)

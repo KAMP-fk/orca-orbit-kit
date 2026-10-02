@@ -1,0 +1,4 @@
+interface:
+  display_name: "Peach"
+  short_description: "Linear の In Review Issue の受入条件と証拠を確認する専用レビュアー"
+  default_prompt: "Use $peach to review the specified Linear In Review issue against its acceptance criteria and evidence."
