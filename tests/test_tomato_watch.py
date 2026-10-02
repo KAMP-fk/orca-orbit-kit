@@ -37,9 +37,13 @@ elif name=='gh':
  elif args[:2]==['pr','view']:
   n=args[2];fail('view_rc');emit(cfg.get('view',{'headRefOid':cfg.get('confirmed_head_'+n,cfg.get('confirmed_head','a'*40))}))
  elif args[:1]==['api']:
-  fail('statuses_rc');emit(cfg.get('statuses',[]))
+  if any('/actions/runs?' in value for value in args):
+   target=next(value for value in args if '/actions/runs?' in value)
+   page={'total_count':0,'workflow_runs':[]};emit(page if 'status=success' in target else [page])
+  else: fail('statuses_rc');emit(cfg.get('statuses',[]))
  else: sys.exit('unexpected gh call')
 elif name=='guard': sys.exit(cfg.get('guard_rc',0))
+elif name=='launchctl': pass
 else: sys.exit('unexpected executable')
 '''
 
@@ -50,7 +54,7 @@ class TomatoObservationCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.bin = self.root / 'bin'; self.bin.mkdir()
-        for name in ('git', 'gh', 'guard'):
+        for name in ('git', 'gh', 'guard', 'launchctl'):
             path=self.bin/name;path.write_text(MOCK);path.chmod(0o755)
         self.fixture=self.root/'fixture.json';self.calls_file=self.root/'calls.jsonl'
         self.config={}

@@ -59,9 +59,12 @@ elif name=='gh':
   fail('threads_fetch_rc');out(cfg.get('threads',{'data':{'repository':{'pullRequest':{'reviewThreads':{'pageInfo':{'hasNextPage':False},'nodes':[]}}}}}))
  elif a[:1]==['api']:
   if any('/check-runs?' in v for v in a):
-   fail('checks_fetch_rc');checks=cfg.get('checks',[{'name':'Unit tests','bucket':'pass'}]);runs=[{'id':i+1,'name':c['name'],'head_sha':cfg.get('check_head_sha',cfg.get('head_sha','a'*40)),'status':'in_progress' if c.get('bucket')=='pending' else 'completed','conclusion':{'pass':'success','fail':'failure','skipping':'skipped'}.get(c.get('bucket'),'neutral'),'html_url':c.get('link')} for i,c in enumerate(checks)];out(cfg.get('check_run_pages',[{'total_count':len(runs),'check_runs':runs}]))
+   fail('checks_fetch_rc');checks=cfg.get('checks',[{'name':'Unit tests','bucket':'pass'}]);runs=[{'id':i+1,'name':c['name'],'head_sha':cfg.get('check_head_sha',cfg.get('head_sha','a'*40)),'status':'in_progress' if c.get('bucket')=='pending' else 'completed','conclusion':{'pass':'success','fail':'failure','skipping':'skipped'}.get(c.get('bucket'),'neutral'),'html_url':c.get('link','https://github.com/test/repo/actions/runs/10/job/'+str(i+1))} for i,c in enumerate(checks)];out(cfg.get('check_run_pages',[{'total_count':len(runs),'check_runs':runs}]))
   elif any('/commits/' in v and '/status?' in v for v in a):
    fail('statuses_rc');out(cfg.get('status_pages',[{'sha':cfg.get('head_sha','a'*40),'total_count':0,'statuses':[]}]))
+  elif any('/actions/runs?' in v for v in a):
+   target=next(v for v in a if '/actions/runs?' in v)
+   page={'total_count':0,'workflow_runs':[]};out(page if 'status=success' in target else [page])
   elif any('/actions/runs/' in v for v in a):
    rid=int(re.search(r'/runs/(\d+)',next(v for v in a if '/actions/runs/' in v))[1])
    if any('/jobs?' in v for v in a):
@@ -73,9 +76,14 @@ elif name=='gh':
   elif any('/statuses' in v for v in a): fail('statuses_rc');out(cfg.get('statuses',[]))
   else: sys.exit('unexpected gh API: '+repr(a))
  elif a[:2]==['run','view']:
-  if cfg.get('run_log_partial'): print(cfg.get('run_log','partial fixture log'))
-  fail('run_log_rc')
-  if not cfg.get('run_log_partial'): print(cfg.get('run_log','fixture test logs'))
+  if '--json' in a:
+   fail('test_jobs_rc');checks=cfg.get('checks',[{'name':'Unit tests','bucket':'pass'}])
+   jobs=[{'databaseId':i+1,'name':c['name'],'status':'in_progress' if c.get('bucket')=='pending' else 'completed','conclusion':{'pass':'success','fail':'failure','skipping':'skipped'}.get(c.get('bucket'),'neutral')} for i,c in enumerate(checks)]
+   out(cfg.get('test_run',{'databaseId':int(a[2]),'headSha':cfg.get('test_job_head_sha',cfg.get('head_sha','a'*40)),'attempt':cfg.get('test_run_attempt',1),'url':'https://github.com/test/repo/actions/runs/'+a[2],'jobs':cfg.get('test_jobs',jobs)}))
+  else:
+   if cfg.get('run_log_partial'): print(cfg.get('run_log','partial fixture log'))
+   fail('run_log_rc')
+   if not cfg.get('run_log_partial'): print(cfg.get('run_log','fixture test logs'))
  else: sys.exit('unexpected gh call: '+repr(a))
 elif name=='git':
  if cfg.get('real_git'):
@@ -98,6 +106,7 @@ elif name=='git':
  elif 'checkout' in a: fail('checkout_rc')
  elif 'remote' in a: pass
  else: sys.exit('unexpected git call: '+repr(a))
+elif name=='launchctl': pass
 elif name in ('codex','claude'):
  prompt=a[-1]
  if prompt=='Reply with exactly: PREFLIGHT_OK':
@@ -120,7 +129,7 @@ class OfflineCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.bin = self.root / 'bin'; self.bin.mkdir()
-        for name in ('orca','gh','git','codex','claude'):
+        for name in ('orca','gh','git','codex','claude','launchctl'):
             p = self.bin / name; p.write_text(MOCK); p.chmod(0o755)
         self.fixture = self.root / 'fixture.json'
         self.log = self.root / 'calls.jsonl'

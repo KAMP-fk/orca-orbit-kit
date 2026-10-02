@@ -259,6 +259,48 @@ class EvidenceCase(unittest.TestCase):
     def test_unknown_test_mapping_is_blocked(self):
         self.assert_blocked(self.review('--test-check', 'does not exist'))
 
+    def test_tests_claim_is_validated_even_for_changes_required(self):
+        self.config.update(verdict='CHANGES_REQUIRED', checks=[{'name': 'Unit tests', 'bucket': 'pass', 'link': None}])
+        self.assert_blocked(self.review(), model_expected=True)
+        self.config['report_tests'] = 'UNKNOWN'
+        result = self.review()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        facts = json.loads((self.latest_packet() / 'github/pr-test-repo-1/verification.json').read_text())
+        self.assertEqual(facts['Tests'], 'UNKNOWN')
+        self.assertEqual(facts['workflowJobs'], [])
+
+    def test_successful_check_cannot_override_skipped_test_job(self):
+        self.config.update(test_jobs=[{'databaseId': 1, 'name': 'Unit tests', 'status': 'completed', 'conclusion': 'skipped'}])
+        self.assert_blocked(self.review(), model_expected=True)
+        self.config.update(verdict='CHANGES_REQUIRED', report_tests='UNKNOWN')
+        result = self.review()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_workflow_jobs_are_fetched_and_bound_to_head_run_attempt(self):
+        packet = self.packet(self.review('--packet-only'))
+        facts = json.loads((packet / 'github/pr-test-repo-1/verification.json').read_text())
+        self.assertEqual((facts['testChecks'][0]['runId'], facts['testChecks'][0]['attempt'], facts['testChecks'][0]['headSha']), (10, 1, SHA))
+        self.assertTrue(any(call[:3] == ['gh', 'run', 'view'] and '--json' in call and 'databaseId,headSha,attempt,url,jobs' in call for call in self.calls()))
+        self.assertIn('not that every test', facts['testEvidenceLimit'])
+
+    def test_missing_wrong_or_duplicate_job_evidence_blocks(self):
+        for update in ({'test_jobs_rc': 4}, {'test_job_head_sha': 'b' * 40}, {'test_jobs': []},
+                       {'test_run': {'databaseId': 10, 'headSha': None, 'attempt': 1, 'jobs': []}},
+                       {'test_jobs': [{'databaseId': 2, 'name': 'Unit tests', 'status': 'completed', 'conclusion': 'success'}]},
+                       {'test_jobs': [{'databaseId': 1, 'name': 'other', 'status': 'completed', 'conclusion': 'success'}]}):
+            with self.subTest(update=update):
+                self.config = update
+                self.assert_blocked(self.review())
+
+    def test_rerun_attempt_change_invalidates_previous_success(self):
+        self.config['ci_after_review'] = {'test_run_attempt': 2}
+        self.assert_blocked(self.review(), model_expected=True)
+
+    def test_named_commit_status_is_not_workflow_job_execution(self):
+        self.config.update(checks=[{'name': 'build', 'bucket': 'pass'}],
+                           status_pages=[{'sha': SHA, 'total_count': 1, 'statuses': [{'id': 20, 'context': 'Unit tests', 'state': 'success'}]}])
+        self.assert_blocked(self.review(), model_expected=True)
+
     def test_non_test_substrings_cannot_support_pass(self):
         for name in ('attestation', 'inspection'):
             with self.subTest(name=name):

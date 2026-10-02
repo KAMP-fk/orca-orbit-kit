@@ -162,14 +162,22 @@ PR の required checks を同じ head の結果へ照合し、`verification.json
 optional skip は必須 CI の失敗にしない。必須 pending / skip / cancelled / neutral、必須チェック不明は成功にしない。
 review / verdict 系のゲートが循環していても無条件には除外せず、未達として残す。
 
-Tests の対象はテスト job と識別できるチェック名、または操作者の `--test-check` 完全一致 mapping。
+Tests の対象は `gh run view --json databaseId,headSha,attempt,url,jobs` で取得した
+workflow job 一覧のうち、現在の check-run のリンクの run / job ID と一致するもの。
+run の repository URL と full head SHA、attempt、job ID、name を照合する。
+テスト job と識別できる名前、または操作者の `--test-check` 完全一致 mapping を対象とする。
+`status=completed` かつ `conclusion=success` の場合だけ PASS とし、skipped は PASS に数えない。
+job 一覧が無いチェックや commit-status の文字列だけなら UNKNOWN。取得失敗・不正は BLOCKED。
 例えば `CI / full` の中でテストを実行する契約を確認した場合は、その名前を明示する。
 mapping は結果と対象を結びつける指定であり、テストの内容・カバレッジ・受入条件の充足を保証しない。
+job success はその job が走った証拠であり、job 内の全テストが走った証拠ではない。
+#279 では `CI / full` success と db / e2e skipped が併存した。
+Tests 欄は PASS 以外の CHANGES_REQUIRED / BLOCKED でも証拠へ照合する。
 指定名が取得結果に無い、または同名のチェックが複数ある場合は BLOCKED。
 
 主 Issue と related / parent / child Issue は full 情報を取得後と判定保存前に再取得し、本文・状態・コメント・前提の更新を検出する。
 PR も再取得し、head / base やレビュー情報の更新を検出する。
-CI も判定保存前に再取得し、必須チェックやテスト結果が変わった場合は判定を有効化しない。
+CI と workflow job 一覧も判定保存前に再取得し、必須チェック・テスト結果・run / attempt / job ID が変わった場合は判定を有効化しない。
 モデルの生出力を保存した後、Issue / PR / full Commit / CI / Tests、出力形式、PASS の未達・不明 AC を検証する。
 PASS の AC section は、1件以上あり、非空行すべてが規定の `* [x] <項目>` であることも確認する。
 この検証が通るまでは PASS を表示せず、台帳にも記録しない。無効な出力は診断を残して BLOCKED。

@@ -96,7 +96,57 @@ def aggregate(checks):
     return 'PASS' if checks and all(c['bucket'] == 'pass' for c in checks) else 'UNKNOWN'
 
 
-def verification(checks_path, required_path, policy_path):
+def action_links(checks, slug):
+    require(isinstance(checks, list) and all(isinstance(c, dict) for c in checks), 'malformed check list for job acquisition')
+    pattern = re.compile(r'https://github\.com/' + re.escape(slug) + r'/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)(?:\?[^\s]*)?$')
+    links = []
+    for check in checks:
+        match = pattern.fullmatch(check.get('link') or '')
+        if check.get('source') == 'check-run' and match:
+            links.append((int(match[1]), int(match[2]), check))
+    return links
+
+
+def workflow_jobs(runs_path, checks_path, head, slug):
+    runs, checks = read(runs_path), read(checks_path)
+    require(isinstance(runs, list), 'workflow job snapshots are missing')
+    require(all(isinstance(r, dict) for r in runs), 'malformed workflow snapshot')
+    require(all(type(r.get('databaseId')) is int and r['databaseId'] > 0 for r in runs), 'invalid workflow run ID')
+    links = action_links(checks, slug)
+    expected = {run_id for run_id, _, _ in links}
+    require(len(runs) == len(expected), 'workflow run snapshots are incomplete or duplicated')
+    require({r.get('databaseId') for r in runs} == expected, 'workflow run identity mismatch')
+    result = []
+    seen = set()
+    for run in runs:
+        run_id = run['databaseId']
+        require(isinstance(run.get('headSha'), str) and run['headSha'].lower() == head.lower(), 'workflow jobs belong to another head SHA')
+        require(run.get('url') == f'https://github.com/{slug}/actions/runs/{run_id}', 'workflow repository/run URL mismatch')
+        require(type(run.get('attempt')) is int and run['attempt'] > 0, 'workflow attempt is missing')
+        require(isinstance(run.get('jobs'), list), 'workflow job list is missing')
+        require(all(isinstance(j, dict) for j in run['jobs']), 'malformed workflow job')
+        for job in run['jobs']:
+            job_id = job.get('databaseId')
+            require(type(job_id) is int and job_id > 0 and job_id not in seen, 'workflow job ID is missing or duplicated')
+            seen.add(job_id)
+            require(isinstance(job.get('name'), str) and bool(job['name']), 'workflow job name is missing')
+            require(job.get('status') in ('queued', 'waiting', 'pending', 'requested', 'in_progress', 'completed'), 'workflow job status is missing or invalid')
+            require(job.get('conclusion') is None or isinstance(job['conclusion'], str), 'workflow job conclusion is invalid')
+            matched = [check for rid, jid, check in links if rid == run_id and jid == job_id]
+            require(len(matched) <= 1, 'workflow job matches ambiguous check-runs')
+            if matched:
+                require(matched[0]['name'] == job['name'], 'workflow job/check name mismatch')
+            conclusion = job.get('conclusion')
+            state = conclusion if job['status'] == 'completed' else 'pending'
+            bucket = 'pass' if state == 'success' else 'fail' if state in ('failure', 'timed_out', 'action_required', 'startup_failure') else 'pending' if state == 'pending' else 'unknown'
+            result.append({'id': job_id, 'runId': run_id, 'attempt': run['attempt'], 'name': job['name'],
+                           'status': job['status'], 'conclusion': conclusion, 'bucket': bucket,
+                           'headSha': head, 'source': 'workflow-job', 'currentCheck': bool(matched)})
+        require(all(jid in seen for rid, jid, _ in links if rid == run_id), 'check-run job is absent from workflow job list')
+    return result
+
+
+def verification(checks_path, required_path, policy_path, jobs_path):
     checks, required, policy = read(checks_path), read(required_path), read(policy_path)
     require(isinstance(checks, list) and isinstance(required, list), 'malformed required-check list')
     selected = []
@@ -110,10 +160,14 @@ def verification(checks_path, required_path, policy_path):
     mapped = policy['testChecks']
     for name in mapped:
         require(len([c for c in checks if c['name'] == name]) == 1, 'explicit test check is missing or ambiguous: ' + name)
-    tests = [c for c in checks if c['name'] in mapped or TEST_JOB_TOKEN.search(c['name'])]
+    jobs = read(jobs_path)
+    require(isinstance(jobs, list), 'workflow job evidence is missing')
+    tests = [j for j in jobs if j['currentCheck'] and (j['name'] in mapped or TEST_JOB_TOKEN.search(j['name']))]
     return {'CI': aggregate(selected), 'Tests': aggregate(tests), 'requiredChecks': selected,
             'testChecks': tests, 'explicitTestChecks': mapped,
-            'testEvidencePolicy': 'exact operator mapping or identifiable test job name; reviewer must verify test contents',
+            'workflowJobs': jobs,
+            'testEvidencePolicy': 'pinned head/run/attempt and current check-run job ID; named completed/success workflow jobs only',
+            'testEvidenceLimit': 'job success proves that job ran, not that every test inside it ran; CI / full success can coexist with skipped db/e2e (#279)',
             'possiblePostReviewConditions': [c for c in selected if re.search(r'review|verdict', c['name'], re.I)],
             'postReviewPolicy': 'Classification only. Required gates remain required; no success is inferred.'}
 
@@ -123,7 +177,9 @@ def same_verification(before, after):
     for key in ('CI', 'Tests'):
         require(a[key] == b[key], 'verification changed: ' + key)
     for key in ('requiredChecks', 'testChecks'):
-        fingerprint = lambda rows: sorted((row['name'], row['bucket'], row['headSha']) for row in rows)
+        fingerprint = lambda rows: sorted((row['name'], row['bucket'], row['headSha'], row.get('runId', 0),
+                                          row.get('attempt', 0), row.get('id', 0), row.get('status', ''),
+                                          row.get('conclusion') or '') for row in rows)
         require(fingerprint(a[key]) == fingerprint(b[key]), 'verification evidence changed: ' + key)
 
 
@@ -210,6 +266,12 @@ def main():
         print(json.dumps(files(*args)))
     elif action == 'checks':
         print(json.dumps(normalize_checks(*args)))
+    elif action == 'action-runs':
+        checks_path, slug = args
+        for run_id in sorted({rid for rid, _, _ in action_links(read(checks_path), slug)}):
+            print(run_id)
+    elif action == 'workflow-jobs':
+        print(json.dumps(workflow_jobs(*args)))
     elif action == 'verdict':
         print(json.dumps(validate_verdict(*args)))
     elif action == 'verification':

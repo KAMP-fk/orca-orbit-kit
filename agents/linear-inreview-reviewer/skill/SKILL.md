@@ -107,7 +107,12 @@ Claude は Read / Glob / Grep を使い、取得や Git コマンドの再実行
 
 `evidence.json` の `complete: false` は診断用パケットであり、実レビューを起動できない。
 取得中や判定保存前の Issue / PR 更新も起動側が BLOCKED として停止する。
-CI / Tests 欄は対象 PR の `verification.json` と一致させる。
+CI / Tests 欄は判定が CHANGES_REQUIRED / BLOCKED の場合も対象 PR の `verification.json` と一致させる。
+Tests は `workflow-run-*.json` / `workflow-jobs.json` の固定 head / run / attempt と
+現在の check-run の job ID に一致する名指しの job の status / conclusion を根拠にする。
+completed / success のみ PASS、skipped と job 一覧無しは UNKNOWN。CI 全体の緑から推論しない。
+job success はその job が走った証拠であり、内部の全テストの実行証明ではない。
+#279 では CI / full success と db / e2e skipped が併存した。
 optional skip は必須 CI の失敗とは扱わず、必須 skip / pending / 未取得は成功に読み替えない。
 一般名の CI でテストを実行する場合は操作者の `--test-check` mapping が必要。
 mapping は実行結果の対象を指定するだけで、テスト内容や受入条件の充足を保証しない。

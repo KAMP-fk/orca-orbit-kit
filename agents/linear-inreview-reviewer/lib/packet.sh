@@ -45,7 +45,7 @@ write_packet() {
     echo "2. \`linear/issue.json\` — 生データ（labels / project / team / relations / activity）"
     echo "3. \`linear/related/*.json\` — 関連 Issue・sub-issue"
     echo "4. \`github/candidates.json\` — PR 特定の根拠"
-    echo "5. 各 \`github/pr-*/\` — \`pr.json\` / \`source.json\` / \`diff.patch\` / \`checks.json\` / \`required-checks.json\` / \`verification.json\` / \`review-threads.json\` / \`commits.json\`"
+    echo "5. 各 \`github/pr-*/\` — \`pr.json\` / \`source.json\` / \`diff.patch\` / \`checks.json\` / \`required-checks.json\` / \`workflow-run-*.json\` / \`workflow-jobs.json\` / \`verification.json\` / \`review-threads.json\` / \`commits.json\`"
     echo "6. \`github/pr-*/src\` — PR の head SHA にチェックアウト済みの読み取り専用クローン"
     if [ -d "$PACKET/github/runs" ]; then echo "7. \`github/runs/*/\` — 受入条件が参照する workflow run の一次データ（\`run.json\` / \`jobs.jsonl\` / \`log.txt\`）。launcher が GitHub から直接取得したもの"; fi
     echo
@@ -55,6 +55,9 @@ write_packet() {
     echo "\`checks.json\` は full head SHA を指定した check-run と commit-status。必須チェックを \`verification.json\` で照合している。"
     echo "CI / Tests は \`verification.json\` の集約値を使用する。optional の skip は必須 CI を失敗へ変えない。"
     echo "テスト名を識別できない一般 CI 名は、操作者の \`--test-check\` 完全一致 mapping が無ければ Tests: UNKNOWN。テスト内容の妥当性は別途読む。"
+    echo "Tests は固定 head / run / attempt と現在の check-run の job ID に一致する workflow job の status / conclusion に接地する。一覧無しは UNKNOWN、skipped は PASS に数えない。"
+    echo "job success はその job が走った証拠であり、job 内の全テストが走った証拠ではない。#279 では CI / full success と db / e2e skipped が併存した。"
+    echo "Tests 欄は CHANGES_REQUIRED / BLOCKED でも取得事実へ照合する。"
     echo "review / verdict 系の必須ゲートはレビュー後の条件になり得るが、成功未確認を PASS へ読み替えない。"
     echo "PR と Issue は取得後、および判定保存前に再取得して状態・要件の更新を検出する。"
     echo "取得不完全な packet-only は診断用。必須欠落のあるパケットでは実レビューを起動しない。"

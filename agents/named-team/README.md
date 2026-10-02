@@ -61,3 +61,12 @@ base config や既存 agent を変更しない。別のファイル/リンクが
 
 モデル実行を伴う実依頼、外部投稿、automation、repo 操作の許可は、現在のユーザー指示と対象契約から得る。
 この定義を新しい操作許可として扱わない。
+# Git 管理された作業場所
+
+2026-10-03 の引継ぎで、`/Users/kamp/orca` のエージェント実装・共有オフラインテストと
+`/Users/kamp/.claude/skills/Tomato` の観測ソースを別々のローカル Git repository にした。
+runtime state / logs / packets / backups / secrets は除外する。方針は各 `VERSION-CONTROL.md`。
+実装依頼は、Melon が `--cwd /Users/kamp/orca`、Kiwi が
+`--cwd /Users/kamp/.claude/skills/Tomato` を使う。通常の Git 検査は維持する。
+`--exec` を別の Codex sandbox 内から呼ぶと、Git 検査を通っても runtime 初期化の権限で
+停止する場合がある。起動 rc と実 model / effort を確認し、制約を迂回して起動しない。

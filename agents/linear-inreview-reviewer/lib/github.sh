@@ -194,9 +194,10 @@ fetch_github() {
     fi
     evidence_capture "${SLUG}#${N}.checks" "$D/checks.json" true "$SCOPE" \
       python3 "$LIB_ROOT/evidence.py" checks "$D/check-runs.json" "$D/statuses.json" "$HEAD_SHA" || true
+    fetch_test_jobs "$D" "$HEAD_SHA" ""
     if evidence_capture "${SLUG}#${N}.required-checks" "$D/required-checks.json" true "$SCOPE" gh pr checks "$N" --repo "$SLUG" --required --json name,state,bucket,link,workflow,completedAt; then
       evidence_capture "${SLUG}#${N}.verification" "$D/verification.json" true "$SCOPE" \
-        python3 "$LIB_ROOT/evidence.py" verification "$D/checks.json" "$D/required-checks.json" "$PACKET/verification-policy.json" || true
+        python3 "$LIB_ROOT/evidence.py" verification "$D/checks.json" "$D/required-checks.json" "$PACKET/verification-policy.json" "$D/workflow-jobs.json" || true
     fi
     if evidence_capture "${SLUG}#${N}.review-threads" "$D/review-threads.json" true "$SCOPE" \
       gh api graphql -F owner="$O" -F name="$R" -F number="$N" -f query='
@@ -217,6 +218,23 @@ fetch_github() {
   fi
   fetch_workflow_runs
   recheck_linear acquired
+}
+
+fetch_test_jobs() { # directory head suffix; snapshots belong to current check-run job IDs
+  local dir="$1" head="$2" suffix="$3" rid run_files=() run_scope
+  run_scope="${SLUG}#${N} head=${head}${suffix}"
+  if ! evidence_capture "${SLUG}#${N}.action-runs${suffix}" "$dir/action-runs${suffix}.txt" true "$run_scope" \
+    python3 "$LIB_ROOT/evidence.py" action-runs "$dir/checks${suffix}.json" "$SLUG"; then return; fi
+  while IFS= read -r rid; do
+    [ -n "$rid" ] || continue
+    run_files+=("$dir/workflow-run-${rid}${suffix}.json")
+    evidence_capture "${SLUG}#${N}.workflow-run.${rid}${suffix}" "$dir/workflow-run-${rid}${suffix}.json" true "$run_scope run=$rid" \
+      gh run view "$rid" --repo "$SLUG" --json databaseId,headSha,attempt,url,jobs || true
+  done < "$dir/action-runs${suffix}.txt"
+  if [ "${#run_files[@]}" -gt 0 ]; then jq -s '.' "${run_files[@]}" > "$dir/workflow-runs${suffix}.json"
+  else printf '[]\n' > "$dir/workflow-runs${suffix}.json"; fi
+  evidence_capture "${SLUG}#${N}.workflow-jobs${suffix}" "$dir/workflow-jobs${suffix}.json" true "$run_scope" \
+    python3 "$LIB_ROOT/evidence.py" workflow-jobs "$dir/workflow-runs${suffix}.json" "$dir/checks${suffix}.json" "$head" "$SLUG" || true
 }
 
 fetch_workflow_runs() {
@@ -271,10 +289,11 @@ recheck_ci() { # directory
     gh api --paginate --slurp "repos/${SLUG}/commits/${head}/status?per_page=100" || true
   evidence_capture "${SLUG}#${N}.checks.final" "$dir/checks-final.json" true "$scope" \
     python3 "$LIB_ROOT/evidence.py" checks "$dir/check-runs-final.json" "$dir/statuses-final.json" "$head" || true
+  fetch_test_jobs "$dir" "$head" -final
   evidence_capture "${SLUG}#${N}.required-checks.final.required-checks" "$dir/required-checks-final.json" true "$scope" \
     gh pr checks "$N" --repo "$SLUG" --required --json name,state,bucket,link,workflow,completedAt || true
   if evidence_capture "${SLUG}#${N}.verification.final" "$dir/verification-final.json" true "$scope" \
-    python3 "$LIB_ROOT/evidence.py" verification "$dir/checks-final.json" "$dir/required-checks-final.json" "$PACKET/verification-policy.json"; then
+    python3 "$LIB_ROOT/evidence.py" verification "$dir/checks-final.json" "$dir/required-checks-final.json" "$PACKET/verification-policy.json" "$dir/workflow-jobs-final.json"; then
     if ! python3 "$LIB_ROOT/evidence.py" same-verification "$dir/verification.json" "$dir/verification-final.json"; then
       evidence_invalid "${SLUG}#${N}.verification.final" "$dir/verification-final.json" true "$scope" "CI or test evidence changed during review"
     fi
