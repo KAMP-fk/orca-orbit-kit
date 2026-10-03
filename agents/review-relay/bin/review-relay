@@ -44,6 +44,19 @@ mkdir -p "$LOG_DIR"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 facts="${work}/facts.md"
 
+# 起動者の追跡用。引数や環境は収集せず、門・モデルの独立性判定には使わない。
+launcher_parent_pid="$PPID"
+if launcher_parent_comm="$(ps -o comm= -p "$launcher_parent_pid" 2>/dev/null)" \
+   && [[ "$launcher_parent_comm" =~ [^[:space:]] ]]; then
+  launcher_parent_comm="${launcher_parent_comm#"${launcher_parent_comm%%[![:space:]]*}"}"
+  launcher_parent_comm="${launcher_parent_comm%"${launcher_parent_comm##*[![:space:]]}"}"
+  # %q で改行などをエスケープし、監査記録を必ず1行に保つ。
+  launcher="$(printf 'parent=%q pid=%s' "$launcher_parent_comm" "$launcher_parent_pid")"
+else
+  launcher="parent=取得できなかった pid=${launcher_parent_pid} (ps の失敗または空の出力)"
+fi
+readonly launcher
+
 printf '中継専任 review-relay — PR #%s (%s)\n\n' "$pr" "$repo"
 
 # ── 1. 事実を集める（読み取りだけ）────────────────────────────────────
@@ -186,6 +199,7 @@ ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 audit="${LOG_DIR}/$(date -u +%Y-%m-%d).md"
 {
   printf '\n## %s  PR #%s  head=%s\n' "$ts" "$pr" "$head_sha"
+  printf -- '- launcher: %s\n' "$launcher"
   printf -- '- record : %s\n' "$record"
   printf -- '- labels : %s\n' "$labels"
   printf -- '- verdict: %s\n' "$verdict"

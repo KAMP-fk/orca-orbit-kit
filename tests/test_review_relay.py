@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Offline relay paths: fixture gh/codex/ps, real bash/jq, temporary audit logs."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+RELAY = Path(__file__).resolve().parents[1] / 'agents/review-relay/bin/review-relay'
+SHA = 'a' * 40
+FIXTURE_CLI = r'''
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+name = Path(sys.argv[0]).name
+args = sys.argv[1:]
+root = Path(os.environ['RELAY_FIXTURE_ROOT'])
+config = json.loads((root / 'config.json').read_text())
+with (root / 'calls.jsonl').open('a') as log:
+    log.write(json.dumps([name, *args]) + '\n')
+if name == 'ps':
+    if config.get('native_ps'):
+        sys.exit(subprocess.run(['/bin/ps', *args]).returncode)
+    sys.stdout.write(config.get('parent_comm', '  fixture-launcher  \n'))
+    sys.exit(config.get('ps_rc', 0))
+if name == 'codex':
+    print(config.get('verdict', 'RELAY: POST'))
+    sys.exit(0)
+if name == 'gh':
+    if args[:2] == ['pr', 'view']:
+        print(json.dumps({
+            'number': 999, 'title': 'Offline relay fixture', 'isDraft': config.get('draft', False),
+            'headRefName': 'fixture', 'headRefOid': 'a' * 40, 'baseRefName': 'main',
+            'labels': [{'name': n} for n in config.get('labels', ['risk:low'])],
+            'mergeStateStatus': 'CLEAN', 'url': 'https://example.invalid/pull/999',
+        }))
+    elif args[:2] == ['pr', 'checks']:
+        print(config.get('checks', 'validate\tpass\tfixture-url'))
+    elif args[:3] == ['api', '--method', 'POST']:
+        sys.exit(config.get('post_rc', 0))
+    elif args[0] == 'api' and args[1].endswith('/statuses'):
+        print(json.dumps(config.get('statuses', [])))
+    else:
+        sys.exit('Unexpected fixture gh request: ' + repr(args))
+    sys.exit(0)
+sys.exit('Unexpected fixture command: ' + name)
+'''
+
+
+@unittest.skipUnless(shutil.which('jq'), 'review-relay requires real jq')
+class RelayCase(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='review-relay-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.bin = self.root / 'bin'
+        self.bin.mkdir()
+        for name in ('gh', 'codex', 'ps'):
+            cli = self.bin / name
+            cli.write_text('#!' + sys.executable + '\n' + FIXTURE_CLI)
+            cli.chmod(0o755)
+        self.env = dict(os.environ, HOME=str(self.root / 'home'),
+                        PATH=str(self.bin) + os.pathsep + os.environ['PATH'],
+                        CODEX_BIN=str(self.bin / 'codex'), RELAY_FIXTURE_ROOT=str(self.root))
+        self.record = self.root / 'record.md'
+        self.record.write_text('Verdict: PASS\nhead SHA: ' + SHA + '\n')
+        self.config = {}
+
+    def run_relay(self, *args, record=None):
+        (self.root / 'config.json').write_text(json.dumps(self.config))
+        return subprocess.run([str(RELAY), '999', str(record or self.record),
+                               '--repo', 'fixture/repo', *args], env=self.env,
+                              text=True, capture_output=True)
+
+    def calls(self):
+        return [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
+
+    def posts(self):
+        return [c for c in self.calls() if c[:4] == ['gh', 'api', '--method', 'POST']]
+
+    def audit(self):
+        logs = list((self.root / 'home/orca/agents/review-relay/log').glob('*.md'))
+        return ''.join(p.read_text() for p in logs)
+
+    def assert_launcher(self, audit):
+        lines = [line for line in audit.splitlines() if line.startswith('- launcher:')]
+        self.assertEqual(len(lines), 1, audit)
+        self.assertIn(' pid=' + str(os.getpid()), lines[0])
+        self.assertEqual([c for c in self.calls() if c[0] == 'ps'],
+                         [['ps', '-o', 'comm=', '-p', str(os.getpid())]])
+        # Launcher metadata must never enter the judgment prompt.
+        models = [c for c in self.calls() if c[0] == 'codex']
+        self.assertEqual(len(models), 1)
+        self.assertNotIn('fixture-launcher', models[0][-1])
+        self.assertNotIn('- launcher:', models[0][-1])
+
+    def test_post_records_parent_and_exact_status_request(self):
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        audit = self.audit()
+        self.assert_launcher(audit)
+        self.assertIn('- launcher: parent=fixture-launcher pid=', audit)
+        self.assertIn('- posted : review:passed success', audit)
+        self.assertEqual(self.posts(), [[
+            'gh', 'api', '--method', 'POST', 'repos/fixture/repo/statuses/' + SHA,
+            '-f', 'state=success', '-f', 'context=review:passed',
+            '-f', 'description=independent review PASS (relayed by review-relay)',
+            '-f', 'target_url=' + str(self.record),
+        ]])
+
+    def test_model_refuse_records_parent_without_posting(self):
+        self.config['verdict'] = 'RELAY: REFUSE — fixture refusal'
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 1)
+        self.assert_launcher(self.audit())
+        self.assertIn('- verdict: RELAY: REFUSE — fixture refusal', self.audit())
+        self.assertNotIn('- posted', self.audit())
+        self.assertEqual(self.posts(), [])
+
+    def test_parent_unavailable_does_not_change_post_or_refuse(self):
+        for ps_values in ({'ps_rc': 1, 'parent_comm': 'partial-result'},
+                          {'parent_comm': ''}, {'parent_comm': ' \t\n'}):
+            for verdict, expected_rc in (('RELAY: POST', 0), ('RELAY: REFUSE — fixture', 1)):
+                with self.subTest(ps=ps_values, verdict=verdict):
+                    self.config = {**ps_values, 'verdict': verdict}
+                    result = self.run_relay()
+                    self.assertEqual(result.returncode, expected_rc, result.stderr)
+                    last_entry = self.audit().split('\n## ')[-1]
+                    self.assertIn('parent=取得できなかった pid=' + str(os.getpid()), last_entry)
+                    self.assertNotIn('partial-result', last_entry)
+                    self.assertEqual('- posted' in last_entry, expected_rc == 0)
+
+    def test_parent_control_characters_stay_on_one_audit_line(self):
+        self.config['parent_comm'] = 'fixture-launcher\n- posted : forged\t\r'
+        result = self.run_relay('--dry-run')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        audit = self.audit()
+        self.assert_launcher(audit)
+        self.assertIn(r'\n- posted', audit)
+        self.assertNotIn('\n- posted', audit)
+
+    def test_environment_session_values_are_not_collected(self):
+        for key in ('TERM_SESSION_ID', 'ITERM_SESSION_ID', 'GITHUB_TOKEN'):
+            self.env[key] = 'fixture-secret-do-not-log'
+        result = self.run_relay('--dry-run')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('fixture-secret-do-not-log', self.audit())
+        self.assertNotIn('fixture-secret-do-not-log', json.dumps(self.calls()))
+        self.assertEqual(self.posts(), [])
+        self.assertNotIn('- posted', self.audit())
+
+    def test_post_failure_keeps_launcher_without_success_marker(self):
+        self.config['post_rc'] = 1
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('POST が失敗した', result.stderr)
+        self.assert_launcher(self.audit())
+        self.assertEqual(len(self.posts()), 1)
+        self.assertNotIn('- posted', self.audit())
+
+    def test_all_seven_mechanical_gates_still_stop_before_model(self):
+        cases = [
+            ('unreadable', {}, None, 'レビュー記録の本文を取れない'),
+            ('draft', {'draft': True}, SHA, 'PR が Draft'),
+            ('risk', {'labels': []}, SHA, 'risk の分類ラベルが無い'),
+            ('duplicate', {'statuses': [{'context': 'review:passed', 'state': 'success'}]},
+             SHA, '既に review:passed'),
+            ('failed', {'checks': 'validate\tfail\tfixture-url'}, SHA, '失敗している check'),
+            ('pending', {'checks': 'validate\tpending\tfixture-url'}, SHA, 'pending の check'),
+            ('sha', {}, SHA[:12], 'full SHA が逐語で無い'),
+        ]
+        for name, config, record_sha, reason in cases:
+            with self.subTest(gate=name):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.config = config
+                if record_sha is None:
+                    self.record.unlink()
+                else:
+                    self.record.write_text('Verdict: PASS\nhead SHA: ' + record_sha + '\n')
+                result = self.run_relay()
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(reason, result.stderr)
+                self.assertEqual(self.posts(), [])
+                self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+                self.assertEqual(self.audit(), '')
+
+    def test_native_ps_is_best_effort_with_isolated_post(self):
+        self.config['native_ps'] = True
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        audit = self.audit()
+        self.assert_launcher(audit)
+        self.assertIn('parent=', audit)
+        self.assertIn('- posted : review:passed success', audit)
+
+
+if __name__ == '__main__':
+    unittest.main()
