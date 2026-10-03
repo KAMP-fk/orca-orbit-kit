@@ -16,7 +16,16 @@ a=sys.argv[1:]
 root=Path(os.environ['NAMED_TEAM_TASK_DIR'])
 root.mkdir(exist_ok=True)
 with (root/'calls.jsonl').open('a') as f: f.write(json.dumps(a)+'\n')
-if a[:2]==['worktree','show']:
+if a[:2]==['worktree','list']:
+ roles=json.loads(Path(os.environ['NAMED_TEAM_ROLE_CONTRACT']).read_text())
+ rows=[{'id':'fixture-workspace','hostId':'local',
+   'path':str(Path(v['workspaceRoot']).expanduser().absolute()),
+   'displayName':v.get('workspaceAliases',[v['workspace']])[0]} for v in roles.values()]
+ if os.environ.get('FIXTURE_DUPLICATE_ROLE'):
+  role=roles[os.environ['FIXTURE_DUPLICATE_ROLE']]
+  rows.append({'id':'duplicate','path':str(Path(role['workspaceRoot']).expanduser().absolute()),'displayName':role['workspace']})
+ result={'worktrees':rows,'truncated':False}
+elif a[:2]==['worktree','show']:
  result={'worktree':{'id':'fixture-workspace'}}
 elif a[:2]==['terminal','create']:
  command=a[a.index('--command')+1]
@@ -101,7 +110,7 @@ class TaskSessionTests(unittest.TestCase):
                 self.assertIn('--focus', create)
                 self.assertIn(role.capitalize(), create[create.index('--title') + 1])
                 show = [call for call in calls if call[:2] == ['worktree','show']][-1]
-                self.assertTrue(show[show.index('--worktree') + 1].startswith('name:' + role.capitalize() + '｜'))
+                self.assertEqual(show[show.index('--worktree') + 1], 'id:fixture-workspace')
                 self.assertEqual(calls[-2][:2], ['terminal','wait'])
                 self.assertEqual(calls[-1][:2], ['terminal','close'])
                 self.assertEqual(calls[-1][calls[-1].index('--terminal') + 1], 'term_fixture')
@@ -112,6 +121,14 @@ class TaskSessionTests(unittest.TestCase):
                 self.assertIn('タスクを開始', visible)
                 self.assertIn('実行中: Read' if role == 'potato' else 'fixture Codex is working', visible)
                 self.assertIn('fixture review result' if role == 'potato' else 'fixture implementation result', result.stdout)
+
+    def test_ambiguous_home_stops_before_starting_a_model_or_creating_a_tab(self):
+        self.env['FIXTURE_DUPLICATE_ROLE'] = 'tomato'
+        result = self.launch('tomato', 'task request')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Ambiguous workspace', result.stderr)
+        self.assertFalse(self.fixture.log.exists())
+        self.assertEqual([c[:2] for c in self.calls()], [['worktree','list']])
 
     def test_exec_compatibility_and_orca_prompt_also_use_new_sessions(self):
         runs = []

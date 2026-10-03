@@ -44,6 +44,7 @@ class NamedAgentsTests(unittest.TestCase):
         self.env['PATH'] = str(self.bin) + os.pathsep + self.env.get('PATH', '')
         self.log = self.root / 'fixture-log.json'
         self.env['NAMED_AGENT_FIXTURE_LOG'] = str(self.log)
+        self.env['NAMED_TEAM_ROLE_CONTRACT'] = str(PACKAGE / 'roles.json')
         self.env['NAMED_AGENT_FIXTURE_EXIT'] = '0'
         for role in ROLES:
             if role == 'potato':

@@ -82,6 +82,8 @@ base config、trust、approval、sandbox 設定は変更しない。
 `--uninstall` はこの package を指すリンクだけを外す。
 
 `bin/start-workspaces` は六役のカードの準備・確認だけを行い、待機エージェントを起動しない。
+役の起動先は `roles.json` の `workspaceRoot` で固定する。Tomato/Banana は既存の brain worktree、Peach は既存の reviewer project を再利用し、従来の表示名も認識する。Kiwi/Potato/Melon のホームは skills project のカード。別 project の同名開発 worktree と混同しない。
+Orca 全体の一覧を取得してホームを照合し、同じホームに複数の候補がある場合や一覧が不完全な場合は作成・起動を止める。既存の brain/reviewer ホームが見つからない場合も別 project に代替カードを作らない。
 Orca executable は ORCA_CLI_COMMAND、dev session、Linux、macOS の順に現行ガイドどおり選択し、別 build へ fallback しない。
 操作を行う担当はその executable の `orca-cli`、監督付き連携のときだけ `orchestration` を読む。
 

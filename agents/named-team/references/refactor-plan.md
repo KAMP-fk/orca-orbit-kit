@@ -44,3 +44,28 @@ Orca の五役＋既存 Melon のカードも check で確認。
 検査対象: Literal な依頼ファイル、対象 path、provider/effort の維持、モデル metadata の拒否、
 一件ごとの可視タブ、曖昧な作成と回収、結果欠落、無効な途中 PASS の除外、既存の CI/Tests 証拠ゲート、観測の履歴と取得失敗。
 実モデルの稼働・実サービスでの取得・既存セッションへの新定義の再読込は未検証。
+
+## 既存ワークスペースの重複修正 — 2026-10-03 JST
+
+初回のカード準備では skills project だけを検索したため、brain の Tomato/Banana と
+reviewer project の Peach を見落とし、同じ役のカードを skills 側へ追加していた。
+Owner の指摘を受け、`roles.json` にホーム path と旧表示名を明示し、Orca 全体の
+一覧から固定ホームを照合するよう修正。タスク起動も同じ解決処理を使う。
+同じホームの候補重複・不完全な一覧は作成/起動前に停止し、brain/reviewer ホームが
+ない場合に別 project へ代替カードを作らない。
+
+この作業で追加した Tomato/Banana/Peach の3カードは、folder project の card 除去が
+元フォルダを削除しない実装であることを確認してから、Orca CLI の `worktree rm` を
+exact id 指定、force/hook なしで実行。各応答は removed=true。
+再取得した全一覧で三役それぞれ未アーカイブ workspace が1件、従来の path のまま
+であることと、skills フォルダが残ることを確認。既存ホームは除去・改名していない。
+
+| 検査 | 結果 |
+|---|---|
+| `python3 -B -m unittest discover -s tests -p 'test_named*.py'` | 48件、rc=0 |
+| `python3 -B -m unittest discover -s tests -p 'test_agent_refactor.py' -k orca_peach` | 2件、rc=0 |
+| `agents/named-team/bin/start-workspaces --check` | 六役の既存ホームを確認、rc=0 |
+| `agents/named-team/install.py --check` | 15リンク、rc=0 |
+| `git diff --check` | rc=0 |
+
+自動起動の automation は未追加。モデルを使った起動テストも行っていない。

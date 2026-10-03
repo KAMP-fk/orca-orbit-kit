@@ -26,7 +26,10 @@ def out(value): print(json.dumps(value))
 def fail(key):
  if cfg.get(key): print('fixture unavailable',file=sys.stderr);sys.exit(cfg[key])
 if name=='orca':
- if a[:2]==['worktree','show']: out({'ok':True,'result':{'worktree':{'id':'fixture::/workspace'}}})
+ if a[:2]==['worktree','list']:
+  roles=json.loads(Path(os.environ['NAMED_TEAM_ROLE_CONTRACT']).read_text())
+  out({'ok':True,'result':{'worktrees':[{'id':'fixture::/workspace','path':str(Path(v['workspaceRoot']).expanduser().absolute()),'displayName':v.get('workspaceAliases',[v['workspace']])[0]} for v in roles.values()]}})
+ elif a[:2]==['worktree','show']: out({'ok':True,'result':{'worktree':{'id':'fixture::/workspace'}}})
  elif a[:2]==['terminal','create']:
   command=a[a.index('--command')+1];run=Path(shlex.split(command)[-1])
   Path(os.environ['NAMED_TEAM_TASK_DIR'],'latest').write_text(str(run))
@@ -146,6 +149,7 @@ class OfflineCase(unittest.TestCase):
         guard=self.root/'guard-check';guard.write_text('#!/bin/sh\nexit 0\n');guard.chmod(0o755)
         sockets=self.root/'sockets';sockets.mkdir()
         self.env = dict({key:value for key,value in os.environ.items() if not key.startswith(('GIT_','TOMATO_','LINEAR_INREVIEW_'))}, PATH=str(self.bin)+':'+os.environ['PATH'], FIXTURE=str(self.fixture), CALL_LOG=str(self.log), MODEL_CONTEXT_LOG=str(self.model_context_log), LINEAR_INREVIEW_HOME=str(self.root/'reviewer-state'), TOMATO_STATE=str(self.root/'watch-state'), TOMATO_EXCLUDE=str(self.root/'exclude'), TOMATO_BRAIN=str(self.root/'brain'), TOMATO_GUARD=str(guard), TOMATO_SOCKET_DIR=str(sockets))
+        self.env['NAMED_TEAM_ROLE_CONTRACT'] = '/Users/kamp/orca/agents/named-team/roles.json'
         inbox = self.root/'brain/Tomato/inbox.md'; inbox.parent.mkdir(parents=True); inbox.write_text('現在の窓口: fixture\n')
 
     def run_cli(self, executable, *args):

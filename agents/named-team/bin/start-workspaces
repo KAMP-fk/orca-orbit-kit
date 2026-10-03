@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'lib'))
-from role_contract import NAMES, orca_command, local_orca_only
+from role_contract import NAMES, orca_command, local_orca_only, find_workspace, workspace_root
 
 FOLDER = Path.home() / '.agents/skills'
 
@@ -27,31 +27,31 @@ def main():
     parser.add_argument('--check', action='store_true', help='Read-only status; do not launch or repair')
     args = parser.parse_args()
     local_orca_only()
+    roles = [args.role] if args.role else list(NAMES)
+    # Inventory all projects before mutation: Tomato/Banana already live in brain,
+    # and Peach already has its own project. A renamed title is not a new role.
+    snapshot = call('worktree', 'list')
+    targets = {role: find_workspace(role, snapshot, required=False) for role in roles}
+    for role, target in targets.items():
+        if target is None and (args.check or workspace_root(role) != FOLDER):
+            raise RuntimeError('Missing role home: ' + role + ' at ' + str(workspace_root(role)))
     if not args.check:
         subprocess.run([sys.executable, str(ROOT / 'bin/setup')], check=True)
-    repos = [r for r in call('repo', 'list')['repos'] if r['path'] == str(FOLDER)]
-    if not repos:
-        if args.check:
-            raise RuntimeError('Agent folder is not registered in Orca')
-        repos = [call('repo', 'add', '--path', str(FOLDER))['repo']]
-    if len(repos) != 1:
-        raise RuntimeError('Ambiguous agent project; no changes made')
-    repo = repos[0]['id']
-    workspaces = call('worktree', 'list', '--repo', 'id:' + repo)['worktrees']
-    for role in ([args.role] if args.role else NAMES):
-        matches = [w for w in workspaces if w.get('displayName') == NAMES[role] and not w.get('isArchived')]
-        if len(matches) > 1:
-            raise RuntimeError('Ambiguous workspace: ' + role)
-        if not matches:
-            if args.check:
-                raise RuntimeError('Missing workspace: ' + role)
-            matches = [call('worktree', 'create', '--repo', 'id:' + repo,
-                            '--name', NAMES[role], '--no-parent', '--setup', 'skip')['worktree']]
-        wid = matches[0]['id']
+    repo = None
+    for role, target in targets.items():
+        if target is None:
+            if repo is None:
+                repos = [r for r in call('repo', 'list')['repos'] if r['path'] == str(FOLDER)]
+                if len(repos) > 1:
+                    raise RuntimeError('Ambiguous agent project; no changes made')
+                repo = repos[0]['id'] if repos else call('repo', 'add', '--path', str(FOLDER))['repo']['id']
+            target = call('worktree', 'create', '--repo', 'id:' + repo,
+                          '--name', NAMES[role], '--no-parent', '--setup', 'skip')['worktree']
+        wid = target['id']
         terminals = call('terminal', 'list', '--worktree', 'id:' + wid)['terminals']
         # Task sessions are created by the role launcher and closed after result collection.
         # Idle agents make workspace cards look active without any assigned task.
-        print(json.dumps({'role': role, 'workspace': NAMES[role], 'state': 'ready',
+        print(json.dumps({'role': role, 'workspace': target['displayName'], 'state': 'ready',
                           'handles': [t['handle'] for t in terminals],
                           'worktreeId': wid}, ensure_ascii=False))
 
