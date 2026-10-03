@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Observe project changes and dispatch only scoped, supervised role tasks."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
+from event_monitor import main
+
+if __name__ == '__main__':
+    raise SystemExit(main())

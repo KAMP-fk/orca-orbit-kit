@@ -92,3 +92,11 @@ Orca executable は ORCA_CLI_COMMAND、dev session、Linux、macOS の順に現�
 
 モデルを起動する実依頼、外部投稿、automation、repo 操作の許可は現在のユーザー指示と対象契約から得る。
 この定義は追加許可ではない。
+
+## concafe-techo の自動検知
+
+Owner が指定した concafe-techo のみを対象に、Issue・PR・open PR head の CI を
+モデル無しで5分ごとに取得する。変化と担当の稼働を確認して、既存ホームで
+Banana / Tomato / Kiwi の読み取りタスクを Orca の supervised worker として起動する。
+初回の基準保存・無変化・通常の CI 進捗では起動しない。
+計画、配送・排他・回収、運用と検知の限界は [event-monitor.md](references/event-monitor.md)。
