@@ -72,7 +72,8 @@ Tomato/Banana の人格と記憶の正本は brain に残す。Kiwi/Peach/Potato
 通常の依頼は一件ごとに新しい見えるタブで実行し、結果保存・回収・プロセス終了を確認してからそのタブだけを閉じる。
 対話を続ける Tomato などの手動セッションは `--interactive --orca` を明示する。
 起動応答が曖昧でも新しいタスクを二重起動しない。再取得した同じタブだけを照合し、未確認ならタブと結果を保持する。
-待機用のモデルセッションは作らない。`start-workspaces` はカードだけを準備する。
+担当ホームは一役一つ。Tomato/Banana は brain、Peach は reviewer project、Kiwi/Potato/Melon は既存の Orca 開発 worktree を使う。skills はスキルのフォルダで、担当カードを増やさない。案件ごとの作業場所が必要なら対象と目的を明示し、担当ホームと区別する。
+待機用のモデルセッションは作らない。`start-workspaces` は既存ホームの確認と command/profile の配線を行う。ホーム欠落・候補重複・不完全な一覧では停止し、新しいカードを自動作成しない。
 不要な自作カードを整理する場合は、その完全な ID でタスク・成果物・terminal を確認し、整理対象だけに `terminal close --worktree id:<完全なID> --all` を使ってタブ・layout・resume 情報の永続的な除去を確認してから `worktree rm` を行う。`removed=true` だけでは画面の表示や復元情報まで消えたと報告しない。特に folder project の同一 path にある別カードを path 指定でまとめて扱わない。
 
 ## 判定の効力

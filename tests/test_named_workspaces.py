@@ -34,6 +34,14 @@ class WorkspaceTests(unittest.TestCase):
                                           'displayName': value['workspace']})
             self.assertEqual(contract.find_workspace(role, snapshot)['id'], role + '-existing')
 
+    def test_old_skills_cards_never_replace_existing_orca_homes(self):
+        snapshot = self.snapshot()
+        for role in ('kiwi', 'potato', 'melon'):
+            snapshot['worktrees'].insert(0, {'id': role + '-old-skills',
+                                            'path': str(Path.home() / '.agents/skills'),
+                                            'displayName': contract.NAMES[role]})
+            self.assertEqual(contract.find_workspace(role, snapshot)['id'], role + '-existing')
+
     def test_archived_or_remote_card_does_not_replace_a_missing_local_home(self):
         for field, value in [('isArchived', True), ('hostId', 'remote')]:
             snapshot = self.snapshot()
@@ -86,6 +94,16 @@ print(json.dumps({'ok':True,'result':result}))
         self.assertEqual(calls[0][:2], ['worktree', 'list'])
         self.assertEqual(len(calls), 7)
         self.assertTrue(all(call[:2] == ['terminal', 'list'] for call in calls[1:]))
+
+    def test_missing_specialist_home_never_recreates_an_old_skills_card(self):
+        for role in ('kiwi', 'potato', 'melon'):
+            snapshot = self.snapshot()
+            row = next(row for row in snapshot['worktrees'] if row['id'] == role + '-existing')
+            row['path'] = str(Path.home() / '.agents/skills')
+            result, calls = self.startup(snapshot, role)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Missing role home: ' + role, result.stderr)
+            self.assertEqual([call[:2] for call in calls], [['worktree','list']])
 
     def test_missing_brain_home_blocks_setup_instead_of_creating_a_skills_card(self):
         snapshot = self.snapshot()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure named Orca workspace cards exist; launch sessions only for real tasks."""
+"""Check existing named Orca homes and optionally install their command links."""
 import argparse
 import json
 from pathlib import Path
@@ -9,8 +9,6 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'lib'))
 from role_contract import NAMES, ROLES, orca_command, local_orca_only, find_workspace, workspace_root, role_routing
-
-FOLDER = Path.home() / '.agents/skills'
 
 
 def call(*args):
@@ -28,13 +26,10 @@ def main():
     args = parser.parse_args()
     local_orca_only()
     roles = [args.role] if args.role else list(NAMES)
-    # Inventory all projects before mutation: Tomato/Banana already live in brain,
-    # and Peach already has its own project. A renamed title is not a new role.
+    # Every role has an existing declared home. A missing or renamed card must
+    # never create another role in skills or another project.
     snapshot = call('worktree', 'list')
-    targets = {role: find_workspace(role, snapshot, required=False) for role in roles}
-    for role, target in targets.items():
-        if target is None and (args.check or workspace_root(role) != FOLDER):
-            raise RuntimeError('Missing role home: ' + role + ' at ' + str(workspace_root(role)))
+    targets = {role: find_workspace(role, snapshot) for role in roles}
     parents = {role: find_workspace(ROLES[role]['parentRole'], snapshot)['id']
                if ROLES[role]['parentRole'] else None
                for role in roles if 'parentRole' in ROLES[role]}
@@ -42,21 +37,13 @@ def main():
     # Record the coordinator home without changing native parentWorktreeId metadata.
     if not args.check:
         subprocess.run([sys.executable, str(ROOT / 'bin/setup')], check=True)
-    repo = None
     for role, target in targets.items():
-        if target is None:
-            if repo is None:
-                repos = [r for r in call('repo', 'list')['repos'] if r['path'] == str(FOLDER)]
-                if len(repos) > 1:
-                    raise RuntimeError('Ambiguous agent project; no changes made')
-                repo = repos[0]['id'] if repos else call('repo', 'add', '--path', str(FOLDER))['repo']['id']
-            target = call('worktree', 'create', '--repo', 'id:' + repo,
-                          '--name', NAMES[role], '--no-parent', '--setup', 'skip')['worktree']
         wid = target['id']
         terminals = call('terminal', 'list', '--worktree', 'id:' + wid)['terminals']
         # Task sessions are created by the role launcher and closed after result collection.
         # Idle agents make workspace cards look active without any assigned task.
         print(json.dumps({'role': role, 'workspace': target['displayName'], 'state': 'ready',
+                          'workspaceRoot': str(workspace_root(role)), 'workspacePurpose': 'role-home',
                           **role_routing(role), 'coordinatorWorktreeId': parents.get(role),
                           'orcaParentWorktreeId': target.get('parentWorktreeId'),
                           'handles': [t['handle'] for t in terminals],

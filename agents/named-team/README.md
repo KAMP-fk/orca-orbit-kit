@@ -82,10 +82,10 @@ base config、trust、approval、sandbox 設定は変更しない。
 全対象を先に確認し、無関係のファイル/リンクがあれば配線前に中断する。
 `--uninstall` はこの package を指すリンクだけを外す。
 
-`bin/start-workspaces` は六役のカードの準備・確認だけを行い、待機エージェントを起動しない。
-役の起動先は `roles.json` の `workspaceRoot` で固定する。Tomato/Banana は既存の brain worktree、Peach は既存の reviewer project を再利用し、従来の表示名も認識する。Kiwi/Potato/Melon のホームは skills project のカード。別 project の同名開発 worktree と混同しない。
-Orca 全体の一覧を取得してホームを照合し、同じホームに複数の候補がある場合や一覧が不完全な場合は作成・起動を止める。既存の brain/reviewer ホームが見つからない場合も別 project に代替カードを作らない。
-`--check` は既存ホームと専門担当の進行・回収先を読み取り確認し、`coordinatorWorktreeId` を返す。異なる project 間の役の上下関係は `parentRole` で管理し、同一 project 内に限られる Orca の Git ワークスペース親子関係を変更しない。
+`bin/start-workspaces` は六役の既存ホームを確認し、通常実行では command/profile の配線も行う。カードや待機エージェントは作成しない。
+役の起動先は `roles.json` の `workspaceRoot` で固定する。Tomato/Banana は既存の brain worktree、Peach は既存の reviewer project、Kiwi/Potato/Melon は既存の Orca 開発 worktree を担当ホームとして使う。従来の表示名も認識する。skills project はスキルを置く一つのフォルダとして維持し、役ごとのカードを置かない。
+Orca 全体の一覧を取得してホームを照合し、同じホームに複数の候補がある場合や一覧が不完全な場合は配線・起動を止める。どの役でもホームが見つからない場合は停止し、代替カードを作らない。別案件の checkout は明示した `--worktree path:<絶対パス>` で指定する。
+`--check` は既存ホームと専門担当の進行・回収先を読み取り確認し、`workspaceRoot` / `workspacePurpose=role-home` / `coordinatorWorktreeId` を返す。`state=ready` はホームが見つかったことを示し、モデルの稼働を意味しない。異なる project 間の役の上下関係は `parentRole` で管理し、同一 project 内に限られる Orca の Git ワークスペース親子関係を変更しない。
 タスク保存と dry-run の `roleRouting` に上位/専門担当・通常の回収担当・相談先を記録する。この構成は実行中セッションを変更せず、相談先への送信や判断の委任を追加で許可しない。
 Orca executable は ORCA_CLI_COMMAND、dev session、Linux、macOS の順に現行ガイドどおり選択し、別 build へ fallback しない。
 操作を行う担当はその executable の `orca-cli`、監督付き連携のときだけ `orchestration` を読む。

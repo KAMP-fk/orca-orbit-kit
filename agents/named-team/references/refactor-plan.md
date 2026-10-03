@@ -118,3 +118,47 @@ Owner の画像で skills が3件表示されていることを確認。CLI の�
 
 画面の再取得は macOS Accessibility の permission_denied によりできていない。
 「CLI 一覧で1件」を確認済みの範囲とし、画面自体の確認済みとは扱わない。作業中の既存エージェントは停止していない。
+
+## 担当ホームの統一と再発防止 — 2026-10-03 JST
+
+Owner の依頼: 残っている同名ワークスペースの改善を計画して実行する。
+
+計画:
+
+1. Orca 全体の登録、完全 ID、各 terminal と agent の稼働を確認する。
+2. Kiwi/Potato/Melon の既存 Orca 開発 worktree を担当ホームに統一する。
+   brain の Tomato/Banana と reviewer project の Peach は維持する。
+   Melon の進行中タスク・ブランチ・作業場所・terminal はそのまま引き継ぐ。
+3. 同名の skills 側の三カードは、未使用であることを再確認し、完全 ID を使って
+   terminal の復元情報を閉じてから folder card の登録だけを除去する。
+   skills の元フォルダと root card は維持する。
+4. 表示名・説明を共通契約へ揃え、起動先とホーム確認に反映する。
+   ホーム欠落時の自動カード作成を取り除き、別 project に担当を増やさない。
+5. 隔離 fixture、配線確認、dry-run、再取得した全登録と terminal の一致を検証する。
+
+完了条件: 各担当の未アーカイブのホームが一つ、skills は root card 一つ。
+既存の稼働 terminal と Git worktree を維持し、専門三役の回収先は brain/Banana。
+確認範囲は CLI の登録と実装検査とし、画面のピクセル確認とは区別する。
+
+実行結果:
+
+- Kiwi/Potato/Melon の `workspaceRoot` を既存の `~/orca/workspaces/orca/<Role>` へ変更。
+  `start-workspaces` から repo/card の自動作成処理を取り除き、全役のホームと回収先を配線前に確認する。
+- skills 側の三カードは folder project に属し、agent は0件。
+  Kiwi の空の shell 1件だけを閉じ、三カードそれぞれの `retiredSurfaces=true` と `removed=true` を確認。
+- 既存六役の表示名と comment を責任表に合わせた。モデル設定・実行中の設定は変更していない。
+  直後の全一覧で各役のホームは1件、skills の未アーカイブ card は root 1件。
+  六役の worktree ID・instance ID・path・Git head・branch・native parent と terminal handle 集合は前後で一致した。
+  操作記録は除外対象の `/Users/kamp/orca/reports/role-home-cleanup-20261003.json` に保存。
+
+| 検査 | 結果 |
+|---|---|
+| `python3 -B -m unittest discover -s tests -p 'test_named*.py'` | 53件、rc=0 |
+| `python3 -B -m unittest discover -s tests -p 'test_agent_refactor.py' -k orca_peach` | 2件、rc=0 |
+| `start-workspaces --check` | 六役の既存ホームと Banana の回収先、rc=0 |
+| 両 installer の `--check` | 15 + 7リンク、rc=0 |
+| インストール済み五役の dry-run | 統一後のホーム・構成、全件 startsSession=false / rc=0 |
+
+これは登録整理と実装側の検査。独立 review PASS ではない。
+画面自体は Accessibility の既知の permission_denied により未確認。
+Issue/PR/CI の変化を検知する automation はこの整理で追加していない。
