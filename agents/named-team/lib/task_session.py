@@ -1,5 +1,6 @@
 """One visible Orca terminal per request; preserve the result before cleanup."""
 import json
+import fcntl
 import os
 from pathlib import Path
 import shlex
@@ -46,7 +47,7 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
     title = role.capitalize() + ' · ' + run.name
     try:
         terminal = call(orca, 'terminal', 'create', '--worktree', selector,
-                        '--title', title, '--command', shlex.join(worker), '--focus')['terminal']
+                        '--title', title, '--command', shlex.join(worker))['terminal']
     except RuntimeError as exc:
         # The renderer can adopt a created tab after the CLI response times out.
         # Never create or send again: recover only the same uniquely titled tab.
@@ -55,38 +56,40 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
         wait = float(os.environ.get('NAMED_TEAM_TAB_WAIT_SECONDS') or 60)
         deadline = time.monotonic() + wait
         terminal = None
-        while time.monotonic() < deadline:
-            rows = call(orca, 'terminal', 'list', '--worktree', selector)['terminals']
-            matches = [row for row in rows if row.get('title') == title]
-            if len(matches) == 1:
-                terminal = matches[0]
-                break
-            if len(matches) > 1:
-                break
-            time.sleep(0.5)
+        try:
+            while time.monotonic() < deadline:
+                rows = call(orca, 'terminal', 'list', '--worktree', selector)['terminals']
+                matches = [row for row in rows if row.get('title') == title]
+                if len(matches) == 1:
+                    terminal = matches[0]
+                    break
+                if len(matches) > 1:
+                    break
+                time.sleep(0.5)
+        except (RuntimeError, OSError, ValueError, KeyError):
+            save(run / 'launch-aborted.json', {'reason': 'terminal recovery unconfirmed'})
+            raise
         if terminal is None:
-            # 60s of absence means the renderer never adopted a tab, so one more
-            # create cannot duplicate a live session. Measured 2026-10-03: --focus
-            # waits for the UI to switch, times out, and creates nothing; the CLI
-            # still makes a visible tab without it. Ask for the tab, not the switch.
-            print('不在を確かめた。--focus なしで1回だけ作ります: ' + str(run),
-                  file=sys.stderr, flush=True)
-            try:
-                terminal = call(orca, 'terminal', 'create', '--worktree', selector,
-                                '--title', title,
-                                '--command', shlex.join(worker))['terminal']
-            except RuntimeError as retry:
-                raise RuntimeError('タブ作成を確認できない。再起動しない。結果の場所: '
-                                   + str(run) + '\n' + str(exc) + '\n' + str(retry))
+            # An absent tab can still appear later when Orca restores the layout.
+            # Revoke this request before returning; never make a second terminal.
+            save(run / 'launch-aborted.json', {'reason': 'terminal creation unconfirmed'})
+            raise RuntimeError('タブ作成を確認できない。再起動しない。結果の場所: '
+                               + str(run) + '\n' + str(exc))
     handle = terminal['handle']
     if not terminal.get('tabId'):
+        save(run / 'launch-aborted.json', {'reason': 'visible tab unconfirmed'})
         raise RuntimeError('見えるタブへの接続を確認できない。再起動せず保持: ' + handle + ' / ' + str(run))
     save(run / 'terminal.json', terminal)
     print(role.capitalize() + ': タブ ' + handle + ' / 結果 ' + str(run), file=sys.stderr, flush=True)
     try:
         deadline = time.monotonic() + 60
         while not (run / 'finished.json').is_file():
-            observation = call(orca, 'terminal', 'read', '--terminal', handle, '--limit', '1')['terminal']
+            try:
+                observation = call(orca, 'terminal', 'read', '--terminal', handle, '--limit', '1')['terminal']
+            except RuntimeError:
+                if (run / 'finished.json').is_file():
+                    break
+                raise
             if observation.get('status') == 'exited':
                 raise RuntimeError('タブは終了したが結果を保存できていない。タブを保持: ' + handle)
             if not (run / 'started.json').is_file() and time.monotonic() > deadline:
@@ -97,12 +100,10 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
         result = (run / 'result.txt').read_text()
         error = (run / 'error.txt').read_text()
         actual = json.loads((run / 'metadata.json').read_text()) if metadata and not finished['returncode'] else None
-        exited = call(orca, 'terminal', 'wait', '--terminal', handle, '--for', 'exit',
-                      '--timeout-ms', '5000')['wait']
-        if exited.get('satisfied') is not True:
-            raise RuntimeError('結果は保存済みだがタブの終了を確認できない。タブを保持: ' + handle)
-        call(orca, 'terminal', 'close', '--terminal', handle)
-        save(run / 'closed.json', {'handle': handle, 'closed': True})
+        # finished is published only after the model exits. Keep the wrapper PTY
+        # addressable until close --tab confirms stopping it and durable removal.
+        call(orca, 'terminal', 'close', '--terminal', handle, '--tab')
+        save(run / 'closed.json', {'handle': handle, 'tabId': terminal['tabId'], 'closed': True})
         if error:
             print(error, file=sys.stderr, end='')
         if not finished['returncode'] or collector == 'stdout':
@@ -168,7 +169,50 @@ def lines_with_activity(child):
 
 
 def worker(run):
-    request = json.loads((run / 'request.json').read_text())
+    """A restored startup command must never replay a model or overwrite evidence."""
+    with (run / 'worker.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print('同じタスクは既に実行中。モデルを再起動しません。', flush=True)
+            return 4
+        try:
+            if any((run / name).exists() for name in
+                   ('started.json', 'finished.json', 'closed.json', 'launch-aborted.json')):
+                raise RuntimeError('実行済み・開始済み・中止済みの依頼を再実行しません')
+            # Orca starts the command before terminal create returns its receipt.
+            # Only the original runtime handle may start the model after receipt.
+            handle = os.environ.get('ORCA_TERMINAL_HANDLE')
+            if not handle:
+                raise RuntimeError('Orca terminal handle がありません')
+            deadline = time.monotonic() + float(os.environ.get('NAMED_TEAM_RECEIPT_WAIT_SECONDS') or 90)
+            while not (run / 'terminal.json').is_file():
+                if (run / 'launch-aborted.json').exists() or time.monotonic() >= deadline:
+                    raise RuntimeError('タブ作成の確認がありません。遅延起動を止めます')
+                time.sleep(0.1)
+            terminal = json.loads((run / 'terminal.json').read_text())
+            if terminal.get('handle') != handle or not terminal.get('tabId'):
+                raise RuntimeError('復元された別タブではモデルを起動しません')
+            if (run / 'launch-aborted.json').exists():
+                raise RuntimeError('タブ作成は中止済みです')
+            request = json.loads((run / 'request.json').read_text())
+            # Keep an irreversible claim even after a crash. A dead PID is not
+            # permission to retry an ambiguous model invocation.
+            with (run / 'started.json').open('x') as started:
+                json.dump({'pid': os.getpid(), 'handle': handle}, started)
+                started.flush()
+                os.fsync(started.fileno())
+        except (RuntimeError, OSError, ValueError, KeyError) as exc:
+            print('タスクを再送せず停止: ' + str(exc), flush=True)
+            return 4
+        rc = execute_worker(run, request)
+        deadline = time.monotonic() + float(os.environ.get('NAMED_TEAM_CLEANUP_WAIT_SECONDS') or 30)
+        while not (run / 'closed.json').exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        return rc
+
+
+def execute_worker(run, request):
     command = request['command'][:]
     env = os.environ.copy()
     env.update(request['environment'])
@@ -178,7 +222,6 @@ def worker(run):
     result = ''
     rc = 3
     print(role.capitalize() + ' のタスクを開始 / 対象: ' + request['cwd'], flush=True)
-    save(run / 'started.json', {'pid': os.getpid()})
     if collector == 'claude':
         command[command.index('--output-format') + 1] = 'stream-json'
         command.insert(command.index('--'), '--verbose')
@@ -187,6 +230,7 @@ def worker(run):
         command[index:index] = ['--output-last-message', str(run / 'result.txt')]
     final = None
     output = []
+    child = None
     try:
         with (run / 'progress.log').open('w') as log:
             child = subprocess.Popen(command, cwd=request['cwd'], env=env, stdin=subprocess.DEVNULL,
@@ -233,6 +277,19 @@ def worker(run):
     except (OSError, ValueError, TypeError, KeyError) as exc:
         rc = 3
         error = role.capitalize() + ': BLOCKED — ' + str(exc) + '\n'
+        # A collection failure can happen while the model is still running.
+        # Do not publish finished (and authorize PTY cleanup) until it has exited.
+        if child is not None and child.poll() is None:
+            try:
+                child.terminate()
+                try:
+                    child.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+            except OSError as cleanup:
+                print(error + '子プロセスの終了は未確認: ' + str(cleanup), flush=True)
+                return 4
     # The finished marker is written last and only after the child exited and reports persisted.
     (run / 'result.txt').write_text(result)
     (run / 'error.txt').write_text(error)

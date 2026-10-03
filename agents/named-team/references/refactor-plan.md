@@ -162,3 +162,40 @@ Owner の依頼: 残っている同名ワークスペースの改善を計画し
 これは登録整理と実装側の検査。独立 review PASS ではない。
 画面自体は Accessibility の既知の permission_denied により未確認。
 Issue/PR/CI の変化を検知する automation はこの整理で追加していない。
+
+## 過去タスクの再実行を防ぐ — 2026-10-03 JST
+
+Owner の依頼: Kiwi/Potato/Melon のタブと裏の稼働を確認する。
+旧セッションの停止対象は、Owner が選択した「完了確認済みの Codex 3つだけ」。
+
+計画と実行結果:
+
+1. native terminal/layout、実プロセス、各タスクの開始・完了記録を照合した。
+   Kiwi/Potato のホームは空の shell。Potato の実作業は指定された Melon checkout の別タブにあり、
+   そのタブへ切り替えた。タブと一致しない旧 Codex 3つは完了イベントを再照合して停止し、終了を確認。
+   担当・完了を未確認の旧 Claude 3つは停止していない。
+2. Melon の過去タスク5件が復元コマンドで起動したことを、worker PID と出力更新で確認した。
+   完了済み2件と Potato 1件の再実行、および作成未確認だった2件の遅延起動。
+   停止範囲を広げる前に5件とも自然終了し、現在の三ホームはモデル無しの shell 待機。
+   既存タスクの出力が再実行によって上書きされた点は、除外対象の調査記録に残した。
+3. 起動は一度だけ作成し、`--focus` の応答待ちと不在を根拠にした二度目の作成を取り除いた。
+   worker は確認した terminal handle が一致するまでモデルを起動しない。
+   依頼単位の排他・一度だけの開始記録で、同時起動、完了済みの復元、開始後クラッシュの再試行を防ぐ。
+   未確認の作成は中止を記録し、遅れて復元されてもモデルを起動しない。
+4. 子プロセス終了後はモデルを残さず、回収用 wrapper だけを最大30秒維持する。
+   結果を読んでから、そのタブだけを `terminal close --terminal <handle> --tab` で永続的に閉じる。
+   実機の短い確認コマンドで、先に PTY が失効する競合を確認してこの回収待ちを追加した。
+5. 完了済みの結果の保持、同時実行、一度開始した依頼、handle 不一致、作成タイムアウト後の遅延起動、
+   子プロセス終了後の wrapper 待機と cleanup 失敗を隔離 fixture で確認した。
+
+| 検査 | 結果 |
+|---|---|
+| `python3 -B -m unittest discover -s tests -p 'test_named*.py'` | 59件、rc=0 |
+| `python3 -B -m unittest discover -s tests -p test_event_monitor.py` | 23件、rc=0 |
+| `python3 -B -m unittest discover -s tests -p test_agent_refactor.py -k orca_peach` | 2件、rc=0 |
+| native Orca、Python の短い確認コマンド | モデル呼び出し無し、結果保存・close・wrapper 終了、rc=0 |
+| native terminal/layout 再取得 | Kiwi/Potato/Melon の agent は0、確認タブは無し、既存 shell を保持 |
+
+調査記録: `/Users/kamp/orca/reports/role-runtime-inspection-20261003.json`。
+独立 review PASS ではなく、Orca 自体の復元処理を修正・再起動したという報告でもない。
+モデルを使った再実行テストは行わず、未確認の旧 Claude 3つを停止済みとは扱わない。

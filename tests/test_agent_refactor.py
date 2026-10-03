@@ -33,10 +33,18 @@ if name=='orca':
  elif a[:2]==['terminal','create']:
   command=a[a.index('--command')+1];run=Path(shlex.split(command)[-1])
   Path(os.environ['NAMED_TEAM_TASK_DIR'],'latest').write_text(str(run))
-  subprocess.run(['/bin/sh','-c',command],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  env=os.environ.copy();env['ORCA_TERMINAL_HANDLE']='fixture_terminal'
+  subprocess.Popen(['/bin/sh','-c',command],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   out({'ok':True,'result':{'terminal':{'handle':'fixture_terminal','tabId':'fixture_tab'}}})
+ elif a[:2]==['terminal','read']:
+  run=Path(Path(os.environ['NAMED_TEAM_TASK_DIR'],'latest').read_text())
+  out({'ok':True,'result':{'terminal':{'status':'running' if not (run/'finished.json').exists() else 'exited'}}})
  elif a[:2]==['terminal','wait']: out({'ok':True,'result':{'wait':{'satisfied':True}}})
- elif a[:2]==['terminal','close']: out({'ok':True,'result':{}})
+ elif a[:2]==['terminal','close']:
+  assert '--tab' in a
+  run=Path(Path(os.environ['NAMED_TEAM_TASK_DIR'],'latest').read_text())
+  assert (run/'finished.json').is_file() and (run/'result.txt').is_file()
+  out({'ok':True,'result':{}})
  elif a[:2]==['linear','issue']:
   fail('linear_rc')
   count=sum(1 for line in Path(os.environ['CALL_LOG']).read_text().splitlines() if json.loads(line)[:4]==['orca','linear','issue',a[2]])
@@ -150,6 +158,7 @@ class OfflineCase(unittest.TestCase):
         sockets=self.root/'sockets';sockets.mkdir()
         self.env = dict({key:value for key,value in os.environ.items() if not key.startswith(('GIT_','TOMATO_','LINEAR_INREVIEW_'))}, PATH=str(self.bin)+':'+os.environ['PATH'], FIXTURE=str(self.fixture), CALL_LOG=str(self.log), MODEL_CONTEXT_LOG=str(self.model_context_log), LINEAR_INREVIEW_HOME=str(self.root/'reviewer-state'), TOMATO_STATE=str(self.root/'watch-state'), TOMATO_EXCLUDE=str(self.root/'exclude'), TOMATO_BRAIN=str(self.root/'brain'), TOMATO_GUARD=str(guard), TOMATO_SOCKET_DIR=str(sockets))
         self.env['NAMED_TEAM_ROLE_CONTRACT'] = '/Users/kamp/orca/agents/named-team/roles.json'
+        self.env['NAMED_TEAM_CLEANUP_WAIT_SECONDS'] = '0.2'
         inbox = self.root/'brain/Tomato/inbox.md'; inbox.parent.mkdir(parents=True); inbox.write_text('現在の窓口: fixture\n')
 
     def run_cli(self, executable, *args):

@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
+from unittest import mock
 
 import test_named_agents
 
@@ -32,8 +34,10 @@ elif a[:2]==['terminal','create']:
  run=Path(shlex.split(command)[-1])
  (root/'latest').write_text(str(run))
  if not os.environ.get('FIXTURE_NO_RESULT'):
-  executed=subprocess.run(['/bin/sh','-c',command], text=True, capture_output=True)
-  (run/'visible.txt').write_text(executed.stdout+executed.stderr)
+  env=os.environ.copy(); env['ORCA_TERMINAL_HANDLE']='term_fixture'
+  with (run/'visible.txt').open('w') as visible:
+   child=subprocess.Popen(['/bin/sh','-c',command], env=env, stdout=visible, stderr=subprocess.STDOUT)
+  (run/'fixture-worker.pid').write_text(str(child.pid))
  result={'terminal':{'handle':'term_fixture','tabId':'fixture-tab'}}
  if os.environ.get('FIXTURE_CREATE_TIMEOUT'):
   if os.environ.get('FIXTURE_CREATE_TIMEOUT_ONCE'):
@@ -47,7 +51,8 @@ elif a[:2]==['terminal','list']:
  else: result={'terminals':[{'handle':'term_fixture','tabId':'fixture-tab',
    'title':'Potato · '+run.name}]}
 elif a[:2]==['terminal','read']:
- result={'terminal':{'status':'exited'}}
+ run=Path((root/'latest').read_text())
+ result={'terminal':{'status':'exited' if (run/'finished.json').exists() or os.environ.get('FIXTURE_NO_RESULT') else 'running'}}
 elif a[:2]==['terminal','wait']:
  result={'wait':{'satisfied':not bool(os.environ.get('FIXTURE_EXIT_UNKNOWN'))}}
 elif a[:2]==['terminal','close']:
@@ -55,6 +60,7 @@ elif a[:2]==['terminal','close']:
  # A close is only accepted after both result and status have been saved.
  assert (run/'result.txt').is_file() and (run/'finished.json').is_file()
  assert (run/'error.txt').is_file()
+ assert '--tab' in a
  if os.environ.get('FIXTURE_CLOSE_FAIL'): sys.exit('fixture close unavailable')
  result={}
 else: sys.exit('Unexpected Orca call: '+repr(a))
@@ -63,12 +69,16 @@ print(json.dumps({'ok':True,'result':result}))
 
 
 MODEL_FIXTURE = r'''#!/usr/bin/python3
-import json, os, sys
+import json, os, sys, time
 from pathlib import Path
 Path(os.environ['NAMED_AGENT_FIXTURE_LOG']).write_text(json.dumps({
  'argv':sys.argv,'cwd':os.getcwd(),'configHome':os.environ.get('CODEX_HOME'),
  'claudeConfigHome':os.environ.get('CLAUDE_CONFIG_DIR'),
  'effort':os.environ.get('CLAUDE_CODE_EFFORT_LEVEL')}))
+with Path(os.environ['NAMED_AGENT_FIXTURE_LOG']+'.calls').open('a') as calls:
+ calls.write('model-start\n')
+if os.environ.get('FIXTURE_MODEL_GATE'):
+ while not Path(os.environ['FIXTURE_MODEL_GATE']).exists(): time.sleep(0.01)
 if Path(sys.argv[0]).name=='claude':
  print(json.dumps({'type':'system','subtype':'init','session_id':'fixture-session'}),flush=True)
  print(json.dumps({'type':'assistant','message':{'content':[
@@ -94,6 +104,9 @@ class TaskSessionTests(unittest.TestCase):
         self.state = self.fixture.root / 'tasks'
         self.env['NAMED_TEAM_TASK_DIR'] = str(self.state)
         self.env['ORCA_CLI_COMMAND'] = str(self.fixture.bin / 'orca-fixture')
+        self.env['NAMED_TEAM_TAB_WAIT_SECONDS'] = '1'
+        self.env['NAMED_TEAM_RECEIPT_WAIT_SECONDS'] = '3'
+        self.env['NAMED_TEAM_CLEANUP_WAIT_SECONDS'] = '0.2'
         for name, content in [('orca-fixture', ORCA_FIXTURE), ('codex', MODEL_FIXTURE), ('claude', MODEL_FIXTURE)]:
             (self.fixture.bin / name).write_text(content)
 
@@ -113,13 +126,14 @@ class TaskSessionTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 calls = self.calls()
                 create = [call for call in calls if call[:2] == ['terminal','create']][-1]
-                self.assertIn('--focus', create)
+                self.assertNotIn('--focus', create)
                 self.assertIn(role.capitalize(), create[create.index('--title') + 1])
                 show = [call for call in calls if call[:2] == ['worktree','show']][-1]
                 self.assertEqual(show[show.index('--worktree') + 1], 'id:fixture-workspace')
-                self.assertEqual(calls[-2][:2], ['terminal','wait'])
+                self.assertFalse(any(c[:2] == ['terminal','wait'] for c in calls))
                 self.assertEqual(calls[-1][:2], ['terminal','close'])
                 self.assertEqual(calls[-1][calls[-1].index('--terminal') + 1], 'term_fixture')
+                self.assertIn('--tab', calls[-1])
                 run = self.run_dir()
                 routing = json.loads((run / 'request.json').read_text())['roleRouting']
                 if role in ('kiwi', 'potato'):
@@ -159,20 +173,97 @@ class TaskSessionTests(unittest.TestCase):
         self.assertEqual(sum(c[:2] == ['terminal','create'] for c in self.calls()), 1)
         self.assertTrue((self.run_dir() / 'closed.json').exists())
 
-    def test_absent_tab_is_recreated_once_without_focus(self):
-        # --focus waits for the UI to switch; measured 2026-10-03 it times out and
-        # creates nothing. After confirming absence, recover with one no-focus create.
+    def test_absent_tab_aborts_without_model_or_second_create(self):
+        # Absence after a timeout cannot rule out later renderer adoption.
         self.env['FIXTURE_CREATE_TIMEOUT'] = '1'
         self.env['FIXTURE_LIST_EMPTY'] = '1'
         self.env['FIXTURE_CREATE_TIMEOUT_ONCE'] = '1'
         self.env['NAMED_TEAM_TAB_WAIT_SECONDS'] = '1'
         result = self.launch('potato', 'review request')
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
         creates = [c for c in self.calls() if c[:2] == ['terminal', 'create']]
-        self.assertEqual(len(creates), 2, creates)
-        self.assertIn('--focus', creates[0])
-        self.assertNotIn('--focus', creates[1])
-        self.assertTrue((self.run_dir() / 'closed.json').exists())
+        self.assertEqual(len(creates), 1, creates)
+        self.assertNotIn('--focus', creates[0])
+        self.assertTrue((self.run_dir() / 'launch-aborted.json').exists())
+        self.assertFalse(self.fixture.log.exists())
+        self.assertFalse((self.run_dir() / 'closed.json').exists())
+        late = self.invoke_worker(self.run_dir())
+        self.assertEqual(late.returncode, 4, late.stdout)
+        self.assertFalse(self.fixture.log.exists())
+
+    def invoke_worker(self, run, handle='term_fixture', env=None):
+        settings = (env or self.env).copy()
+        settings['ORCA_TERMINAL_HANDLE'] = handle
+        return subprocess.run([sys.executable, str(test_named_agents.PACKAGE / 'lib/task_session.py'),
+                               '--worker', str(run)], env=settings,
+                              text=True, capture_output=True, timeout=5)
+
+    def pending_run(self):
+        run = self.fixture.root / 'pending-task'
+        run.mkdir()
+        request = {'role':'melon', 'cwd':str(self.fixture.workspace), 'collector':'codex',
+                   'environment':{}, 'command':[str(self.fixture.bin / 'codex'), '--', 'fixture request']}
+        (run / 'request.json').write_text(json.dumps(request))
+        (run / 'terminal.json').write_text(json.dumps({'handle':'term_fixture','tabId':'fixture-tab'}))
+        return run
+
+    def test_completed_task_replay_preserves_all_reports_without_model_call(self):
+        result = self.launch('melon', 'request')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = self.run_dir()
+        before = {f.name:f.read_bytes() for f in run.iterdir() if f.is_file()}
+        calls = Path(str(self.fixture.log) + '.calls').read_text()
+        replay = self.invoke_worker(run, handle='term_restored')
+        self.assertEqual(replay.returncode, 4, replay.stdout)
+        self.assertEqual(Path(str(self.fixture.log) + '.calls').read_text(), calls)
+        self.assertEqual({name:(run/name).read_bytes() for name in before}, before)
+
+    def test_started_or_legacy_finished_claim_never_retries_even_with_dead_pid(self):
+        run = self.pending_run()
+        for name, value in [('started.json', {'pid':999999999}),
+                            ('finished.json', {'returncode':0}), ('closed.json', {'closed':True})]:
+            with self.subTest(marker=name):
+                (run/name).write_text(json.dumps(value))
+                replay = self.invoke_worker(run)
+                self.assertEqual(replay.returncode, 4, replay.stdout)
+                self.assertFalse(self.fixture.log.exists())
+                (run/name).unlink()
+
+    def test_new_incarnation_and_missing_receipt_cannot_start_a_model(self):
+        run = self.pending_run()
+        replay = self.invoke_worker(run, handle='term_restored')
+        self.assertEqual(replay.returncode, 4, replay.stdout)
+        self.assertFalse(self.fixture.log.exists())
+        (run / 'terminal.json').unlink()
+        settings = self.env.copy(); settings['NAMED_TEAM_RECEIPT_WAIT_SECONDS'] = '0.05'
+        late = self.invoke_worker(run, env=settings)
+        self.assertEqual(late.returncode, 4, late.stdout)
+        self.assertFalse(self.fixture.log.exists())
+        self.assertFalse((run / 'started.json').exists())
+
+    def test_overlapping_workers_start_only_one_model(self):
+        run = self.pending_run()
+        settings = self.env.copy()
+        settings['ORCA_TERMINAL_HANDLE'] = 'term_fixture'
+        gate = self.fixture.root / 'model-exit-gate'
+        settings['FIXTURE_MODEL_GATE'] = str(gate)
+        first = subprocess.Popen([sys.executable, str(test_named_agents.PACKAGE / 'lib/task_session.py'),
+                                  '--worker', str(run)], env=settings,
+                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 3
+            while not self.fixture.log.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(self.fixture.log.exists())
+            second = self.invoke_worker(run, env=settings)
+            self.assertEqual(second.returncode, 4, second.stdout)
+            self.assertFalse((run / 'finished.json').exists())
+            self.assertEqual(Path(str(self.fixture.log) + '.calls').read_text(), 'model-start\n')
+        finally:
+            gate.write_text('exit')
+            stdout, stderr = first.communicate(timeout=5)
+        self.assertEqual(first.returncode, 0, stdout + stderr)
+        self.assertEqual(json.loads((run / 'finished.json').read_text())['returncode'], 0)
 
     def test_literal_request_and_config_are_preserved_in_fresh_terminal(self):
         marker = self.fixture.root / 'must-not-exist'
@@ -220,15 +311,57 @@ class TaskSessionTests(unittest.TestCase):
         self.assertFalse(any(c[:2] == ['terminal','close'] for c in self.calls()))
         self.assertIn('タブを保持', result.stderr)
 
-    def test_unconfirmed_exit_or_failed_close_is_not_cleanup_success(self):
-        for key in ('FIXTURE_EXIT_UNKNOWN', 'FIXTURE_CLOSE_FAIL'):
-            with self.subTest(key=key):
-                self.env[key] = '1'
-                result = self.launch('kiwi', 'request')
-                self.assertEqual(result.returncode, 4, result.stderr)
-                self.assertTrue((self.run_dir() / 'result.txt').is_file())
-                self.assertFalse((self.run_dir() / 'closed.json').exists())
-                del self.env[key]
+    def test_failed_durable_close_is_not_cleanup_success(self):
+        self.env['FIXTURE_CLOSE_FAIL'] = '1'
+        result = self.launch('kiwi', 'request')
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertTrue((self.run_dir() / 'result.txt').is_file())
+        self.assertFalse((self.run_dir() / 'closed.json').exists())
+
+    def test_only_wrapper_stays_alive_after_model_exit_until_cleanup(self):
+        run = self.pending_run()
+        settings = self.env.copy()
+        settings['ORCA_TERMINAL_HANDLE'] = 'term_fixture'
+        settings['NAMED_TEAM_CLEANUP_WAIT_SECONDS'] = '3'
+        wrapper = subprocess.Popen([sys.executable, str(test_named_agents.PACKAGE / 'lib/task_session.py'),
+                                    '--worker', str(run)], env=settings,
+                                   text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 3
+            while not (run / 'finished.json').exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue((run / 'finished.json').exists())
+            self.assertIsNone(wrapper.poll())
+            self.assertEqual(Path(str(self.fixture.log) + '.calls').read_text(), 'model-start\n')
+            self.assertEqual((run / 'result.txt').read_text(), 'fixture implementation result\n')
+        finally:
+            (run / 'closed.json').write_text(json.dumps({'closed':True}))
+            stdout, stderr = wrapper.communicate(timeout=5)
+        self.assertEqual(wrapper.returncode, 0, stdout + stderr)
+
+    def test_collection_failure_stops_child_before_publishing_finished(self):
+        sys.path.insert(0, str(test_named_agents.PACKAGE / 'lib'))
+        self.addCleanup(sys.path.remove, str(test_named_agents.PACKAGE / 'lib'))
+        import task_session
+        run = self.pending_run()
+        settings = self.env.copy()
+        settings['FIXTURE_MODEL_GATE'] = str(self.fixture.root / 'never-released')
+        children = []
+        def fail_collection(child):
+            children.append(child)
+            deadline = time.monotonic() + 3
+            while not self.fixture.log.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            raise OSError('fixture collection unavailable')
+        with mock.patch.dict(os.environ, settings, clear=True), \
+                mock.patch.object(task_session, 'lines_with_activity', side_effect=fail_collection):
+            rc = task_session.execute_worker(run, json.loads((run / 'request.json').read_text()))
+        self.assertEqual(rc, 3)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].poll())
+        children[0].stdout.close()
+        self.assertEqual(json.loads((run / 'finished.json').read_text())['returncode'], 3)
+        self.assertIn('collection unavailable', (run / 'error.txt').read_text())
 
 
 if __name__ == '__main__':
