@@ -154,7 +154,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         marker = self.root / 'should-not-exist'
         request = '引用 " \' ; $(touch ' + str(marker) + ') `touch ' + str(marker) + '`\n日本語 / $HOME'
         self.env['NAMED_AGENT_FIXTURE_EXIT'] = '7'
-        result = self.launch('potato', '--exec', request)
+        result = self.launch('potato', '--batch-worker', request)
         self.assertEqual(result.returncode, 7, result.stderr)
         log = json.loads(self.log.read_text())
         argv = log['argv']
@@ -170,7 +170,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         self.assertFalse(marker.exists())
 
     def test_invalid_requests_do_not_start_a_backend(self):
-        cases = [('--exec',), ('--exec', '  '), ('--cwd', str(self.root / 'missing')),
+        cases = [('--batch-worker',), ('--batch-worker', '  '), ('--cwd', str(self.root / 'missing')),
                  ('--model', ''), ('--model=--invalid',), ('--worktree', 'path:' + str(self.workspace)),
                  ('--exec', '--orca', 'request')]
         for args in cases:
@@ -191,7 +191,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         for model in ('claude-opus-5-5', 'claude-opus-5-5[1m]'):
             with self.subTest(model=model):
                 self.env['NAMED_AGENT_FIXTURE_MODEL'] = model
-                result = self.launch('potato', '--exec', '--json', 'review request')
+                result = self.launch('potato', '--batch-worker', '--json', 'review request')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 metadata = json.loads(result.stdout)
                 self.assertEqual(list(metadata['modelUsage']), [model])
@@ -201,7 +201,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         for model in ('claude-opus-4-6', 'claude-opus-5', 'claude-sonnet-5-5'):
             with self.subTest(model=model):
                 self.env['NAMED_AGENT_FIXTURE_MODEL'] = model
-                result = self.launch('potato', '--exec', 'review request')
+                result = self.launch('potato', '--batch-worker', 'review request')
                 self.assertEqual(result.returncode, 3, result.stderr)
                 self.assertEqual(result.stdout, '')
                 self.assertIn('BLOCKED', result.stderr)
@@ -215,7 +215,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         for raw in cases:
             with self.subTest(raw=raw):
                 self.env['NAMED_AGENT_FIXTURE_RESULT'] = raw
-                result = self.launch('potato', '--exec', '--json', 'review request')
+                result = self.launch('potato', '--batch-worker', '--json', 'review request')
                 self.assertEqual(result.returncode, 3, result.stderr)
                 self.assertEqual(result.stdout, '')
 
@@ -229,7 +229,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
     def test_potato_fixes_relative_claude_config_before_cwd_change(self):
         env = self.env.copy()
         env['CLAUDE_CONFIG_DIR'] = self.claude_config.name
-        result = self.launch('potato', '--exec', '--cwd', str(self.workspace), 'review request', env=env, cwd=self.root)
+        result = self.launch('potato', '--batch-worker', '--cwd', str(self.workspace), 'review request', env=env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stderr)
         log = json.loads(self.log.read_text())
         self.assertEqual(log['claudeConfigHome'], str(self.claude_config))
@@ -254,7 +254,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
             def read(path, *args, **kwargs):
                 return json.dumps(candidate) if path == settings_path else native_read(path, *args, **kwargs)
             with self.subTest(candidate=candidate), mock.patch.dict(os.environ, self.env, clear=True), \
-                 mock.patch.object(sys, 'argv', [str(self.bin / 'potato'), '--exec', '--cwd', str(self.workspace), 'review']), \
+                 mock.patch.object(sys, 'argv', [str(self.bin / 'potato'), '--batch-worker', '--cwd', str(self.workspace), 'review']), \
                  mock.patch.object(launcher.Path, 'read_text', autospec=True, side_effect=read), \
                  mock.patch.object(launcher.subprocess, 'run') as backend, \
                  contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
@@ -278,7 +278,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         backend_result = subprocess.CompletedProcess([], 0, valid_result, '')
         with mock.patch.dict(os.environ, env, clear=True), \
              mock.patch.object(launcher.Path, 'home', return_value=native_home), \
-             mock.patch.object(sys, 'argv', [str(self.bin / 'potato'), '--exec', 'check']), \
+             mock.patch.object(sys, 'argv', [str(self.bin / 'potato'), '--batch-worker', 'check']), \
              mock.patch.object(launcher.os, 'chdir'), \
              mock.patch.object(launcher.subprocess, 'run', return_value=backend_result) as run, \
              contextlib.redirect_stdout(io.StringIO()):
@@ -288,7 +288,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         self.assertEqual(child_environment['CLAUDE_CODE_EFFORT_LEVEL'], 'high')
 
     def test_orca_worktree_path_drives_both_targets(self):
-        preview = self.preview('kiwi', '--orca', '--worktree', 'path:' + str(self.workspace), cwd=self.root)
+        preview = self.preview('kiwi', '--orca', '--interactive', '--worktree', 'path:' + str(self.workspace), cwd=self.root)
         self.assertEqual(preview['cwd'], str(self.workspace))
         argv = preview['argv']
         self.assertEqual(argv[argv.index('--worktree') + 1], 'path:' + str(self.workspace))
@@ -300,9 +300,9 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         cases = [('active',), ('path:relative',), ('path:',)]
         for (selector,) in cases:
             with self.subTest(selector=selector):
-                result = self.launch('melon', '--orca', '--worktree', selector)
+                result = self.launch('melon', '--orca', '--interactive', '--worktree', selector)
                 self.assertEqual(result.returncode, 2)
-        result = self.launch('melon', '--orca', '--worktree', 'path:' + str(self.root),
+        result = self.launch('melon', '--orca', '--interactive', '--worktree', 'path:' + str(self.root),
                              '--cwd', str(self.workspace))
         self.assertEqual(result.returncode, 2)
         self.assertFalse(self.log.exists())
@@ -311,7 +311,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         self.env['ORCA_CLI_COMMAND'] = str(self.bin / 'orca-fixture')
         self.env['NAMED_AGENT_FIXTURE_EXIT'] = '8'
         request = '"引用" $variable ; $(not-a-command)\n引継ぎ'
-        result = self.launch('potato', '--orca', request)
+        result = self.launch('potato', '--orca', '--interactive', request)
         self.assertEqual(result.returncode, 8, result.stderr)
         log = json.loads(self.log.read_text())
         argv = log['argv']
@@ -332,7 +332,7 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         self.env['ORCA_CLI_COMMAND'] = str(self.bin / 'orca-fixture')
         self.env['NAMED_AGENT_FIXTURE_TERMINAL_CWD'] = str(self.root)
         request = '空白 "引用" ; $(not-a-command)\n対象固定'
-        result = self.launch('potato', '--orca', '--worktree', 'path:' + str(self.workspace), request)
+        result = self.launch('potato', '--orca', '--interactive', '--worktree', 'path:' + str(self.workspace), request)
         self.assertEqual(result.returncode, 0, result.stderr)
         log = json.loads(self.log.read_text())
         self.assertEqual(Path(log['argv'][0]).name, 'claude')
@@ -345,14 +345,14 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
             with self.subTest(key=key):
                 env = self.env.copy()
                 env[key] = 'fixture-remote-context'
-                result = self.launch('kiwi', '--orca', 'request', env=env)
+                result = self.launch('kiwi', '--orca', '--interactive', 'request', env=env)
                 self.assertEqual(result.returncode, 2)
                 self.assertFalse(self.log.exists())
 
     def test_relative_config_path_is_fixed_before_direct_cwd_change(self):
         env = self.env.copy()
         env['CODEX_HOME'] = self.config.name
-        result = self.launch('melon', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
+        result = self.launch('melon', '--interactive', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stderr)
         log = json.loads(self.log.read_text())
         self.assertEqual(log['configHome'], str(self.config))
@@ -361,19 +361,19 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
     def test_relative_config_path_is_fixed_for_new_orca_shell(self):
         env = self.env.copy()
         env['CODEX_HOME'] = self.config.name
-        preview = self.preview('melon', '--orca', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
+        preview = self.preview('melon', '--orca', '--interactive', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
         nested = self.terminal_command(preview['argv'])
         self.assertEqual(nested[1], 'CODEX_HOME=' + str(self.config))
 
     def test_relative_backend_paths_are_fixed_before_workspace_change(self):
         env = self.env.copy()
         env['PATH'] = 'bin:/usr/bin:/bin'
-        result = self.launch('melon', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
+        result = self.launch('melon', '--interactive', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(self.log.read_text())['argv'][0], str(self.bin / 'codex'))
         self.log.unlink()
         env['ORCA_CLI_COMMAND'] = 'bin/orca-fixture'
-        result = self.launch('melon', '--orca', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
+        result = self.launch('melon', '--orca', '--interactive', '--cwd', str(self.workspace), 'request', env=env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stderr)
         log = json.loads(self.log.read_text())
         self.assertEqual(log['argv'][0], str(self.bin / 'orca-fixture'))

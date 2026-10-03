@@ -1,0 +1,222 @@
+"""One visible Orca terminal per request; preserve the result before cleanup."""
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import queue
+
+NAMES = {'melon': 'Melon｜レビュー基盤の開発',
+         'kiwi': 'Kiwi｜観測・引継ぎ基盤の開発',
+         'potato': 'Potato｜独立技術レビュー'}
+
+
+def call(orca, *args):
+    completed = subprocess.run([orca, *args, '--json'], text=True, capture_output=True)
+    if completed.returncode:
+        raise RuntimeError(completed.stderr.strip() or completed.stdout.strip())
+    data = json.loads(completed.stdout)
+    if data.get('ok') is not True:
+        raise RuntimeError(completed.stdout.strip())
+    return data['result']
+
+
+def save(path, value):
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+    temporary.replace(path)
+
+
+def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None):
+    # Fail before starting a model if the intended visible workspace is unavailable.
+    selector = workspace or 'name:' + NAMES[role]
+    target = call(orca, 'worktree', 'show', '--worktree', selector)['worktree']
+    selector = 'id:' + target['id']
+    state_root = Path(os.environ.get('NAMED_TEAM_TASK_DIR', str(Path.home() / '.local/share/named-team/tasks')))
+    state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    run = Path(tempfile.mkdtemp(prefix=role + '-', dir=state_root))
+    save(run / 'request.json', {'role': role, 'command': command, 'cwd': str(cwd),
+                              'environment': environment})
+    worker = ['exec', sys.executable, str(Path(__file__).resolve()), '--worker', str(run)]
+    # exec replaces the terminal shell so exit is an observable PTY condition.
+    title = role.capitalize() + ' · ' + run.name
+    try:
+        terminal = call(orca, 'terminal', 'create', '--worktree', selector,
+                        '--title', title, '--command', shlex.join(worker), '--focus')['terminal']
+    except RuntimeError as exc:
+        # The renderer can adopt a created tab after the CLI response times out.
+        # Never create or send again: recover only the same uniquely titled tab.
+        print('タブ作成の応答は未確認。同じタブだけを照合します: ' + str(run), file=sys.stderr, flush=True)
+        deadline = time.monotonic() + 60
+        terminal = None
+        while time.monotonic() < deadline:
+            rows = call(orca, 'terminal', 'list', '--worktree', selector)['terminals']
+            matches = [row for row in rows if row.get('title') == title]
+            if len(matches) == 1:
+                terminal = matches[0]
+                break
+            if len(matches) > 1:
+                break
+            time.sleep(0.5)
+        if terminal is None:
+            raise RuntimeError('タブ作成を確認できない。再起動しない。結果の場所: ' + str(run) + '\n' + str(exc))
+    handle = terminal['handle']
+    if not terminal.get('tabId'):
+        raise RuntimeError('見えるタブへの接続を確認できない。再起動せず保持: ' + handle + ' / ' + str(run))
+    save(run / 'terminal.json', terminal)
+    print(role.capitalize() + ': タブ ' + handle + ' / 結果 ' + str(run), file=sys.stderr, flush=True)
+    try:
+        deadline = time.monotonic() + 60
+        while not (run / 'finished.json').is_file():
+            observation = call(orca, 'terminal', 'read', '--terminal', handle, '--limit', '1')['terminal']
+            if observation.get('status') == 'exited':
+                raise RuntimeError('タブは終了したが結果を保存できていない。タブを保持: ' + handle)
+            if not (run / 'started.json').is_file() and time.monotonic() > deadline:
+                raise RuntimeError('タスク開始を確認できない。再送せずタブを保持: ' + handle)
+            time.sleep(0.5)
+        finished = json.loads((run / 'finished.json').read_text())
+        # Read the saved report before asking Orca to remove any terminal resources.
+        result = (run / 'result.txt').read_text()
+        error = (run / 'error.txt').read_text()
+        actual = json.loads((run / 'metadata.json').read_text()) if metadata and not finished['returncode'] else None
+        exited = call(orca, 'terminal', 'wait', '--terminal', handle, '--for', 'exit',
+                      '--timeout-ms', '5000')['wait']
+        if exited.get('satisfied') is not True:
+            raise RuntimeError('結果は保存済みだがタブの終了を確認できない。タブを保持: ' + handle)
+        call(orca, 'terminal', 'close', '--terminal', handle)
+        save(run / 'closed.json', {'handle': handle, 'closed': True})
+        if error:
+            print(error, file=sys.stderr, end='')
+        if not finished['returncode']:
+            print(json.dumps(actual, ensure_ascii=False) if metadata else result, end='\n' if metadata else '')
+        return finished['returncode']
+    except (RuntimeError, OSError, ValueError, KeyError, KeyboardInterrupt) as exc:
+        print('タスクの回収・終了は未確認: ' + str(exc) + '\n結果の場所: ' + str(run), file=sys.stderr)
+        return 4
+
+
+def review_result(value):
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, dict):
+        raise ValueError('successful Claude result metadata is missing')
+    usage = value.get('modelUsage', {})
+    if (value.get('type') != 'result' or value.get('is_error') is not False
+            or not isinstance(value.get('session_id'), str) or not value['session_id']
+            or not isinstance(usage, dict) or len(usage) != 1
+            or next(iter(usage)) not in ('claude-opus-5-5', 'claude-opus-5-5[1m]')
+            or not isinstance(next(iter(usage.values())), dict)
+            or not isinstance(value.get('result'), str) or not value['result'].strip()):
+        raise ValueError('successful single-model Opus 5.5 result metadata is missing')
+    return value
+
+
+def progress(event):
+    """Render useful Claude activity, without echoing complete tool arguments."""
+    if event.get('type') == 'system' and event.get('subtype') == 'init':
+        return 'セッション開始: ' + str(event.get('session_id', '不明'))
+    if event.get('type') == 'assistant':
+        rows = []
+        for block in event.get('message', {}).get('content', []):
+            if block.get('type') == 'text':
+                rows.append('[作業中・最終検証前] ' + block.get('text', ''))
+            elif block.get('type') == 'tool_use':
+                rows.append('実行中: ' + str(block.get('name', 'tool')))
+        return '\n'.join(rows)
+    if event.get('type') == 'user':
+        return 'ツールの結果を受信'
+    return ''
+
+
+def lines_with_activity(child):
+    lines = queue.Queue()
+    def read():
+        try:
+            for line in child.stdout:
+                lines.put(line)
+        finally:
+            lines.put(None)
+    threading.Thread(target=read, daemon=True).start()
+    start = time.monotonic()
+    while True:
+        try:
+            line = lines.get(timeout=10)
+        except queue.Empty:
+            print('応答を待っています / 経過 ' + str(int(time.monotonic() - start)) + ' 秒', flush=True)
+            continue
+        if line is None:
+            return
+        yield line
+
+
+def worker(run):
+    request = json.loads((run / 'request.json').read_text())
+    command = request['command'][:]
+    env = os.environ.copy()
+    env.update(request['environment'])
+    role = request['role']
+    error = ''
+    result = ''
+    rc = 3
+    print(role.capitalize() + ' のタスクを開始 / 対象: ' + request['cwd'], flush=True)
+    save(run / 'started.json', {'pid': os.getpid()})
+    if role == 'potato':
+        command[command.index('--output-format') + 1] = 'stream-json'
+        command.insert(command.index('--'), '--verbose')
+    else:
+        index = command.index('--')
+        command[index:index] = ['--output-last-message', str(run / 'result.txt')]
+    final = None
+    try:
+        with (run / 'progress.log').open('w') as log:
+            child = subprocess.Popen(command, cwd=request['cwd'], env=env, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in lines_with_activity(child):
+                log.write(line)
+                log.flush()
+                if role == 'potato':
+                    try:
+                        event = json.loads(line)
+                        if not isinstance(event, dict):
+                            raise ValueError('unexpected event')
+                        if event.get('type') == 'result':
+                            final = event
+                        else:
+                            rendered = progress(event)
+                            if rendered:
+                                print(rendered, flush=True)
+                    except (ValueError, TypeError):
+                        print(line, end='', flush=True)
+                else:
+                    print(line, end='', flush=True)
+            rc = child.wait()
+        if rc:
+            error = role.capitalize() + ': 実行失敗 rc=' + str(rc) + '。詳細: ' + str(run / 'progress.log') + '\n'
+        elif role == 'potato':
+            final = review_result(final or {})
+            save(run / 'metadata.json', final)
+            result = final['result'] + '\n'
+            print('実モデル検証済みの結果:\n' + result, end='', flush=True)
+        else:
+            result = (run / 'result.txt').read_text()
+            if not result.strip():
+                raise ValueError('final Codex report is empty')
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        rc = 3
+        error = role.capitalize() + ': BLOCKED — ' + str(exc) + '\n'
+    # The finished marker is written last and only after the child exited and reports persisted.
+    (run / 'result.txt').write_text(result)
+    (run / 'error.txt').write_text(error)
+    print(error or '結果を保存しました: ' + str(run / 'result.txt'), flush=True)
+    save(run / 'finished.json', {'returncode': rc})
+    return rc
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3 or sys.argv[1] != '--worker':
+        raise SystemExit('Use the melon / kiwi / potato task launcher.')
+    raise SystemExit(worker(Path(sys.argv[2])))

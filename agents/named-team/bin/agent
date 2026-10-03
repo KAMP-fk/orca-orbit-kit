@@ -9,25 +9,12 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
+from task_session import launch_task, review_result
+
 ROOT = Path(__file__).resolve().parent.parent
 EFFORT = {'melon': 'medium', 'kiwi': 'medium', 'potato': 'high'}
 REVIEW_MODEL = 'claude-opus-5-5'
-
-
-def review_result(raw):
-    """Validate the actual model before publishing a batch review."""
-    result = json.loads(raw)
-    if not isinstance(result, dict) or result.get('type') != 'result' or result.get('is_error') is not False:
-        raise ValueError('successful Claude result metadata is missing')
-    session = result.get('session_id')
-    usage = result.get('modelUsage')
-    if not isinstance(session, str) or not session or not isinstance(usage, dict) or len(usage) != 1:
-        raise ValueError('actual session / single model metadata is missing')
-    if next(iter(usage)) not in (REVIEW_MODEL, REVIEW_MODEL + '[1m]') or not isinstance(next(iter(usage.values())), dict):
-        raise ValueError('actual model is not the requested Opus 5.5')
-    if not isinstance(result.get('result'), str) or not result['result'].strip():
-        raise ValueError('review result is empty')
-    return result
 
 
 def main():
@@ -39,20 +26,27 @@ def main():
     parser.add_argument('--model', help='今回の明示モデル指定。省略時は各 profile の既定')
     parser.add_argument('--effort', choices=('low', 'medium', 'high', 'xhigh', 'max', 'ultra'))
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--exec', action='store_true', dest='batch', help='対話画面を開かず今回の依頼を実行')
+    mode.add_argument('--exec', action='store_true', dest='batch', help='タスク用の Orca タブで実行し、結果保存後に閉じる（--task と同じ）')
+    mode.add_argument('--task', action='store_true', help='タスクごとに Orca タブを新設し、終了後に閉じる')
+    mode.add_argument('--batch-worker', action='store_true', help=argparse.SUPPRESS)
     mode.add_argument('--orca', action='store_true', help='Orca に名前付き terminal を作って起動')
-    parser.add_argument('--worktree', help='Orca の対象 path:<絶対パス>（--orca 時のみ）')
+    parser.add_argument('--interactive', action='store_true', help='手動の対話セッション。タスクの自動終了を使わない')
+    parser.add_argument('--worktree', help='Orca の対象 path:<絶対パス>（省略時は役ごとの作業場所）')
     parser.add_argument('--dry-run', action='store_true', help='起動引数を JSON で確認。セッションを起動しない')
     parser.add_argument('--json', action='store_true', help='Potato --exec の検証済み Claude result metadata を返す')
     parser.add_argument('prompt', nargs='?', help='今回の依頼（空白を含む場合は引用符で囲む）')
     args = parser.parse_intermixed_args()
     role = alias if alias in EFFORT else args.role
-    if args.json and (role != 'potato' or not args.batch):
-        parser.error('--json は potato --exec と一緒に指定する')
+    task = args.task or args.batch or (args.prompt is not None and not args.interactive and not args.batch_worker)
+    batch = task or args.batch_worker
+    if args.interactive and (args.task or args.batch or args.batch_worker):
+        parser.error('--interactive とタスク実行は同時に指定しない')
+    if args.json and (role != 'potato' or not batch):
+        parser.error('--json は Potato のタスク実行と一緒に指定する')
     if role == 'potato' and ((args.model and args.model != REVIEW_MODEL) or (args.effort and args.effort != 'high')):
         parser.error('Potato のレビューは claude-opus-5-5 / high を指定する')
-    if args.worktree and not args.orca:
-        parser.error('--worktree は --orca と一緒に指定する')
+    if args.worktree and not (args.orca or task):
+        parser.error('--worktree は Orca 実行と一緒に指定する')
     worktree_path = None
     if args.worktree:
         if not args.worktree.startswith('path:') or not args.worktree[5:]:
@@ -66,8 +60,8 @@ def main():
         parser.error('--cwd と --worktree の対象 path が一致しない')
     if not cwd.is_dir():
         parser.error('workspace が存在しない: ' + str(cwd))
-    if args.batch and (not args.prompt or not args.prompt.strip()):
-        parser.error('--exec には今回の依頼が必要')
+    if batch and (not args.prompt or not args.prompt.strip()):
+        parser.error('タスク実行には今回の依頼が必要')
     if args.model is not None and (not args.model.strip() or args.model.startswith('-')):
         parser.error('--model はモデル ID を指定する')
     skill = ROOT / 'roles' / role / 'skill' / 'SKILL.md'
@@ -99,7 +93,7 @@ def main():
                    '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
                    '--settings', str(settings), '--agents', json.dumps(definition, ensure_ascii=False),
                    '--agent', 'potato', '--add-dir', str(skill.parent)]
-        if args.batch:
+        if batch:
             command += ['--print', '--output-format', 'json', '--permission-prompts', 'none']
         environment = {'CLAUDE_CODE_EFFORT_LEVEL': 'high'}
         # Setting this variable changes Claude's global config-file location.
@@ -111,7 +105,7 @@ def main():
         command = ['codex', '-p', role, '-c', 'model_reasoning_effort="' + effort + '"', '-C', str(cwd)]
         if args.model:
             command += ['-m', args.model]
-        if args.batch:
+        if batch:
             command += ['exec']
         environment = {'CODEX_HOME': str(config_home)}
     executable = shutil.which(backend)
@@ -122,7 +116,7 @@ def main():
     if args.prompt is not None:
         prompt = 'あなたは ' + role.capitalize() + '。最初に ' + str(skill) + ' を読み、現在のユーザー指示と対象プロジェクトの契約を適用してください。\n\n今回の依頼:\n' + args.prompt
         command += ['--', prompt]
-    if args.orca:
+    if args.orca or task:
         if os.environ.get('ORCA_ENVIRONMENT') or os.environ.get('ORCA_PAIRING_CODE'):
             parser.error('この role はローカル配線。remote 環境指定のある shell からは起動しない')
         orca = os.environ.get('ORCA_CLI_COMMAND') or ('orca-dev' if os.environ.get('ORCA_DEV_REPO_ROOT') else 'orca-ide' if sys.platform.startswith('linux') else 'orca')
@@ -131,6 +125,7 @@ def main():
             orca = str(Path(orca_executable).absolute())
         elif not args.dry_run:
             parser.error('Orca CLI が見つからない: ' + orca)
+    if args.orca and not task:
         # Pin validated config and effort even when Orca starts a fresh shell.
         terminal_command = ['/usr/bin/env'] + [key + '=' + value for key, value in environment.items()] + command
         # Orca's terminal process may start outside the selected worktree.
@@ -143,17 +138,22 @@ def main():
         print(json.dumps({'role': role, 'displayName': role.capitalize(), 'cwd': str(cwd),
                           'profile': str(installed), 'skill': str(skill), 'backend': backend,
                           'requestedModel': REVIEW_MODEL if role == 'potato' else args.model,
-                          'requestedEffort': effort, 'mode': 'orca' if args.orca else 'exec' if args.batch else 'interactive',
+                          'requestedEffort': effort, 'mode': 'task' if task else 'orca' if args.orca else 'exec' if batch else 'interactive',
+                          'taskWorkspace': 'path:' + str(worktree_path) if worktree_path else None,
+                          'visible': task, 'closeAfterResult': task,
                           'argv': launch, 'startsSession': False}, ensure_ascii=False, indent=2))
         return 0
     try:
+        if task:
+            return launch_task(role, command, cwd, environment, orca, args.json,
+                               'path:' + str(worktree_path) if worktree_path else None)
         if args.orca:
             # The receipt proves terminal creation; it does not assert task completion.
             return subprocess.run(launch, cwd=str(cwd)).returncode
         os.chdir(cwd)
         child_env = os.environ.copy()
         child_env.update(environment)
-        if role == 'potato' and args.batch:
+        if role == 'potato' and batch:
             completed = subprocess.run(command, env=child_env, text=True, capture_output=True)
             if completed.returncode:
                 if completed.stderr:
@@ -167,7 +167,7 @@ def main():
             print(json.dumps(result, ensure_ascii=False) if args.json else result['result'])
             return 0
         os.execvpe(command[0], command, child_env)
-    except OSError as exc:
+    except (OSError, RuntimeError, ValueError, KeyError) as exc:
         print('起動できない: ' + str(exc), file=sys.stderr)
         return 1
 

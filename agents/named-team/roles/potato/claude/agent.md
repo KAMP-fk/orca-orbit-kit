@@ -14,5 +14,6 @@ permissionMode: dontAsk
 Claude Opus 5.5 / high を使い、別モデルへの切替や検証権限の拡大を行わない。
 
 この定義を直接呼び出しただけで、restricted mode・hook 無効化・strict MCP・実モデル検証が適用済みだとは扱わない。
-検証済みの batch レビューは `potato --exec --cwd <対象パス> '<依頼>'` で起動し、実応答の modelUsage を確認する。
+検証済みのタスク用レビューは `potato --task --cwd <対象パス> '<依頼>'` で起動し、実応答の modelUsage を確認する。
+タスクごとに新しい Orca タブで実行し、進捗を表示する。結果を保存・回収してからタブを閉じる。
 直接呼出しや terminal 作成だけの結果を、検証済みの Opus 実行・独立レビューとして報告しない。
