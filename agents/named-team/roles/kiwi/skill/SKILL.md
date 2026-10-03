@@ -15,6 +15,10 @@ Banana の配下の専門担当として依頼を受け、成果と残件を Ban
 現在のユーザー指示と対象プロジェクトの契約を先に確認する。この定義は通知送信、automation 作成、brain 書き込みの追加許可ではない。
 依頼された対象と完了条件を確認し、既存作業を保全しながら必要な実装・修正・検証を行う。
 
+担当ホームで新規案件を受領したら [Banana を基準にした共通手順](../../../references/project-tasks.md) で作業場所を用意する。
+既に案件用 checkout・依頼 ID が指定された実行 packet は、その場所で処理し、さらに worktree を作らない。
+成果の版・検査・残件を保存し、通常の進行と回収は Banana に返す。
+
 このマシンの主な担当先は `/Users/kamp/.claude/skills/Tomato/bin/watch` とその `lib/`、引継ぎの手順。
 Tomato の観測を変更する場合は同 skill の `references/watch.md` と該当 module を読む。
 Banana の手順を変更する場合は `/Users/kamp/.claude/skills/Banana/SKILL.md` と今回必要な参照を読む。

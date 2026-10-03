@@ -10,6 +10,11 @@ Orca の supervised worker を使うタスクでは、対象環境の `orchestra
 他の環境でのローカル開発は、その環境で承認されたエージェント機構を使う。
 Orca 上の監督付き連携を別製品の subagent 状態で代替しない。
 名前付き role の直接タスクは `--prompt-file` で一件ごとの新しいタブに渡す。
+通常の案件受付は [Banana の共通入口](../../../../references/project-tasks.md) の
+`~/.agents/skills/banana/bin/task --role <担当> --repo <対象> --task-id <依頼ID> --prompt-file <依頼>` を使う。
+編集担当は案件用 worktree で実行し、読み取りは `--access read` で指定 checkout を使う。
+既存の担当 branch / PR を継続する場合はその `--worktree path:<絶対パス>` を明示して再利用する。
+成果のある worktree は保持し、回収後に統合・最終検証・必要な cleanup を進める。
 プロジェクトが別 Codex タスクを要求する場合はその正式な経路を使う。
 concafe の新規 subagent / 追加依頼の禁止を名前付き launcher で迂回しない。
 

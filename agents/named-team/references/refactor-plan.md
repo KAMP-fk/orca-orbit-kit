@@ -2,6 +2,10 @@
 
 依頼: Tomato / Banana / Kiwi / Peach / Potato の棲み分け、業務分担、Orca 最適化。人格・記憶・live state と最終署名ゲートは変更対象外。
 
+Owner の後続依頼「依頼を受領した担当が案件用 worktree を作る。基本機能は Banana を参照する」は、
+[案件用タスクの計画・実装・検証](project-tasks.md) に記録した。共通受付・作業場所の用意・
+結果回収・重複防止・統合前の保持・所有する worktree の安全な cleanup を実装済み。
+
 1. 現物と運用契約を確認し、入力・責任・成果物・引き渡し先を役割表にする。
 2. 各 skill の選択条件と境界を共通契約に合わせる。Tomato の人格原本はそのまま、Banana の開発手順は版管理可能な正本へ移し、旧 path を互換リンクにする。
 3. 役割メタデータと Orca executable 選択を一箇所に集める。Tomato/Banana の command・skill・profile を追加する。依頼ファイル入力と Peach の見える task 実行を用意する。

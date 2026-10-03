@@ -11,11 +11,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
 from task_session import launch_task, review_result
-from role_contract import LAUNCH_ROLES, ROLES, skill_root, orca_command, local_orca_only, workspace_root, role_routing
+from role_launch import launch_spec, EFFORT, REVIEW_MODEL
+from role_contract import orca_command, local_orca_only, workspace_root, role_routing
 
 ROOT = Path(__file__).resolve().parent.parent
-EFFORT = {name: ROLES[name]['effort'] for name in LAUNCH_ROLES}
-REVIEW_MODEL = 'claude-opus-5-5'
 
 
 def main():
@@ -24,6 +23,12 @@ def main():
     if alias not in EFFORT:
         parser.add_argument('role', type=str.lower, choices=sorted(EFFORT))
     parser.add_argument('--cwd', help='対象 workspace（既定は現在の場所、または --worktree の path）')
+    parser.add_argument('--repo', type=Path, help='Banana 共通手順で案件を受領。編集依頼は案件用 worktree を作る')
+    parser.add_argument('--access', choices=('read', 'edit'), help='案件の読み取り/編集。既定は役の責任に従う')
+    parser.add_argument('--base-ref', help='新規案件用 worktree の明示 base。省略時は Orca repo の既定')
+    parser.add_argument('--task-id', help='repo 内の依頼 ID。同じ ID の依頼は再実行しない')
+    parser.add_argument('--from-role', choices=('owner', 'tomato', 'banana'), default='owner', help='依頼元の記録。追加の承認ではない')
+    parser.add_argument('--read-only', action='store_true', help='今回の Codex を read-only sandbox で実行')
     parser.add_argument('--model', help='今回の明示モデル指定。省略時は各 profile の既定')
     parser.add_argument('--effort', choices=('low', 'medium', 'high', 'xhigh', 'max', 'ultra'))
     mode = parser.add_mutually_exclusive_group()
@@ -56,6 +61,32 @@ def main():
         parser.error('--json は Potato のタスク実行と一緒に指定する')
     if role == 'potato' and ((args.model and args.model != REVIEW_MODEL) or (args.effort and args.effort != 'high')):
         parser.error('Potato のレビューは claude-opus-5-5 / high を指定する')
+    if args.repo:
+        if args.interactive or args.batch_worker or args.cwd:
+            parser.error('--repo は依頼を受領する入口。interactive / batch-worker / cwd とは併用しない')
+        from project_tasks import request_plan, dispatch
+        try:
+            local_orca_only()
+            existing = None
+            if args.worktree:
+                if not args.worktree.startswith('path:') or not Path(args.worktree[5:]).is_absolute():
+                    raise ValueError('--worktree は再利用する path:<絶対パス> を指定する')
+                existing = Path(args.worktree[5:]).resolve()
+            if args.read_only and args.access == 'edit':
+                raise ValueError('--read-only と編集依頼は併用しない')
+            plan = request_plan(role, args.repo, args.prompt, args.access or ('read' if args.read_only else None), args.base_ref, args.task_id,
+                                args.from_role, args.model, args.effort, existing, args.dry_run)
+            if args.dry_run:
+                print(json.dumps(plan, ensure_ascii=False, indent=2))
+                return 0
+            orca = orca_command()
+            if not shutil.which(orca):
+                raise ValueError('Orca CLI が見つからない: ' + orca)
+            return dispatch(orca, plan, args.prompt, args.model, args.effort, args.json)
+        except (ValueError, OSError, RuntimeError) as exc:
+            parser.error(str(exc))
+    if args.access or args.base_ref or args.task_id or args.from_role != 'owner':
+        parser.error('案件の access / base-ref / task-id / from-role は --repo と一緒に指定する')
     if args.worktree and not (args.orca or task):
         parser.error('--worktree は Orca 実行と一緒に指定する')
     worktree_path = None
@@ -75,63 +106,13 @@ def main():
         parser.error('タスク実行には今回の依頼が必要')
     if args.model is not None and (not args.model.strip() or args.model.startswith('-')):
         parser.error('--model はモデル ID を指定する')
-    skill = skill_root(role) / 'SKILL.md'
-    config_home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))).expanduser().resolve()
-    claude_home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser().resolve()
-    if role == 'potato':
-        profile = ROOT / 'roles/potato/claude/agent.md'
-        installed = claude_home / 'agents/potato.md'
-    else:
-        profile = ROOT / 'roles' / role / 'codex/profile.config.toml'
-        installed = config_home / (role + '.config.toml')
-    if not skill.is_file() or not profile.is_file() or installed.resolve() != profile.resolve() or not installed.is_file():
-        parser.error('role / profile の配線が未完了。named-team/install.py --check を確認する')
-    effort = args.effort or EFFORT[role]
-    if role == 'potato':
-        backend = 'claude'
-        settings = ROOT / 'roles/potato/claude/settings.json'
-        if not settings.is_file():
-            parser.error('Potato の Claude settings が無い')
-        policy = json.loads(settings.read_text())
-        if policy.get('model') != REVIEW_MODEL or policy.get('effortLevel') != 'high' or policy.get('disableAllHooks') is not True or policy.get('permissions', {}).get('disableBypassPermissionsMode') != 'disable':
-            parser.error('Potato の model / effort / permissions 設定が一致しない')
-        definition = {'potato': {'description': 'Independent technical reviewer',
-                      'prompt': skill.read_text().split('\n---\n', 1)[-1].strip(),
-                      'model': REVIEW_MODEL, 'effort': 'high', 'tools': ['Read', 'Glob', 'Grep'],
-                      'permissionMode': 'dontAsk'}}
-        command = ['claude', '--model', REVIEW_MODEL, '--effort', 'high', '--restricted', '--disable-slash-commands',
-                   '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk',
-                   '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-                   '--settings', str(settings), '--agents', json.dumps(definition, ensure_ascii=False),
-                   '--agent', 'potato', '--add-dir', str(skill.parent),
-                   '--add-dir', str(ROOT / 'references')]
-        if batch:
-            command += ['--print', '--output-format', 'json', '--permission-prompts', 'none']
-        environment = {'CLAUDE_CODE_EFFORT_LEVEL': 'high'}
-        # Setting this variable changes Claude's global config-file location.
-        # Preserve its native default unless the caller explicitly selected one.
-        if os.environ.get('CLAUDE_CONFIG_DIR'):
-            environment['CLAUDE_CONFIG_DIR'] = str(claude_home)
-    else:
-        backend = 'codex'
-        command = ['codex', '-p', role, '-c', 'model_reasoning_effort="' + effort + '"', '-C', str(cwd)]
-        if args.model:
-            command += ['-m', args.model]
-        if batch:
-            command += ['exec']
-        else:
-            # A manually opened role tab should reach its input prompt directly.
-            # Keep the installed version and all trust/permission settings intact.
-            command += ['-c', 'check_for_update_on_startup=false']
-        environment = {'CODEX_HOME': str(config_home)}
-    executable = shutil.which(backend)
-    if not executable and not args.dry_run:
-        parser.error(backend + ' が見つからない')
-    if executable:
-        command[0] = str(Path(executable).absolute())
-    if args.prompt is not None:
-        prompt = 'あなたは ' + role.capitalize() + '。最初に ' + str(skill) + ' を読み、現在のユーザー指示と対象プロジェクトの契約を適用してください。\n\n今回の依頼:\n' + args.prompt
-        command += ['--', prompt]
+    try:
+        spec = launch_spec(role, cwd, args.prompt, args.model, args.effort, batch,
+                           args.dry_run, args.read_only)
+    except ValueError as exc:
+        parser.error(str(exc))
+    command, environment = spec['command'], spec['environment']
+    backend, skill, installed, effort = spec['backend'], spec['skill'], spec['profile'], spec['effort']
     if args.orca or task:
         try:
             local_orca_only()

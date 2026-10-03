@@ -88,6 +88,22 @@ Orca が返す完全な worktree ID と唯一の terminal handle で追跡する
 
 ## タスクと回収
 
+案件を受領して担当の作業場所を用意する共通機能は Banana を基準にする。
+編集依頼は新規 worktree、読み取り依頼は指定 checkout、既存担当の継続は明示した worktree を使う。
+各役のモデル・制限と、一件ごとの実行・回収は同じ実装を使う。
+
+```sh
+~/.agents/skills/banana/bin/task --role kiwi --repo /absolute/path/to/repo \
+  --task-id watch-fix-001 --from-role tomato --prompt-file /absolute/path/to/request.md
+kiwi --repo /absolute/path/to/repo --task-id watch-fix-001 \
+  --from-role tomato --prompt-file /absolute/path/to/request.md
+```
+
+二つは同じ共通入口へ到達する。同じ repo・依頼 ID は再実行せず、保存した結果か未確認状態を返す。
+通常の進行・回収は Banana が持ち、Tomato の単独観測基盤依頼では直接 Kiwi に渡せる。
+受領・作成の確認、役の適用、結果、統合前の保持、cleanup は [案件用タスク](references/project-tasks.md)。
+Peach の受入判定は既存の `peach <ISSUE-ID>` を使う。正式な concafe review/判断の経路も維持する。
+
 一件ごとに新しいタブを表示し、途中の出力を流す。
 結果は `~/.local/share/named-team/tasks/<role>-<id>/` の `result.txt`、`error.txt`、`finished.json` に保存する。
 Peach の正式な packet/ledger/verdict は既存の保存先に残り、Orca task の結果はその回の出力を回収する。

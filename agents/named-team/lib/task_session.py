@@ -30,21 +30,31 @@ def save(path, value):
     temporary.replace(path)
 
 
-def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None, collector=None):
+def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None, collector=None,
+                run_dir=None, project_context=None):
     # Fail before starting a model if the intended visible workspace is unavailable.
     selector = workspace or 'id:' + find_workspace(role, call(orca, 'worktree', 'list'))['id']
     target = call(orca, 'worktree', 'show', '--worktree', selector)['worktree']
     selector = 'id:' + target['id']
     state_root = Path(os.environ.get('NAMED_TEAM_TASK_DIR', str(Path.home() / '.local/share/named-team/tasks')))
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    run = Path(tempfile.mkdtemp(prefix=role + '-', dir=state_root))
-    save(run / 'request.json', {'role': role, 'command': command, 'cwd': str(cwd),
+    if run_dir is None:
+        run = Path(tempfile.mkdtemp(prefix=role + '-', dir=state_root))
+    else:
+        run = Path(run_dir)
+        run.mkdir(mode=0o700)
+    request = {'role': role, 'command': command, 'cwd': str(cwd),
                               'roleRouting': role_routing(role),
                               'environment': environment, 'worktreeId': target['id'],
-                              'collector': collector or ('claude' if role == 'potato' else 'codex')})
+                              'collector': collector or ('claude' if role == 'potato' else 'codex')}
+    if project_context is not None:
+        request['projectTask'] = project_context
+    save(run / 'request.json', request)
     worker = ['exec', sys.executable, str(Path(__file__).resolve()), '--worker', str(run)]
     # exec replaces the terminal shell so exit is an observable PTY condition.
-    title = role.capitalize() + ' · ' + run.name
+    # Project sessions share the basename "session" and can reuse one checkout.
+    # Keep receipt recovery unique to this request, just like tempfile jobs.
+    title = role.capitalize() + ' · ' + (run.parent.name if project_context is not None else run.name)
     try:
         terminal = call(orca, 'terminal', 'create', '--worktree', selector,
                         '--title', title, '--command', shlex.join(worker))['terminal']
@@ -215,6 +225,8 @@ def worker(run):
 def execute_worker(run, request):
     command = request['command'][:]
     env = os.environ.copy()
+    if request.get('projectTask') is not None:
+        env = {key: value for key, value in env.items() if not key.startswith('GIT_')}
     env.update(request['environment'])
     role = request['role']
     collector = request.get('collector', 'claude' if role == 'potato' else 'codex')
