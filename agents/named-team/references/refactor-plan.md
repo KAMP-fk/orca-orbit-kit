@@ -103,3 +103,18 @@ Orca のネイティブな親子設定は同じ repo・host・project に限ら�
 | 両 source repo の `git diff --check` | rc=0 |
 
 定義は次の起動・依頼から使用する。相談送信・Fable の実判断・自動検知/起動はこの反映では実行していない。
+
+## skills の同名カード再出現の整理 — 2026-10-03 JST
+
+Owner の画像で skills が3件表示されていることを確認。CLI の全一覧では正規の folder root 1件と、
+今回追加して除去した Tomato/Banana の旧完全 ID の2件が、表示名 skills で再出現していた。
+元の tab ID も同じで、復元された空のシェルが各1件、agent は無し。
+前回の `worktree rm` 応答と直後の一覧だけでは、残るタブの復元情報・表示まで確認できていなかった。
+
+余分な2件の完全 ID だけに `terminal close --worktree id:<完全なID> --all` を実行。
+それぞれ closed=1 / stopped=1 / retiredSurfaces=true を確認してから `worktree rm` を実行し、removed=true を確認した。
+再取得した一覧で skills という表示名は正規の root 1件、Kiwi/Potato/Melon の既存カードと
+元の skills フォルダは保持。六役の `start-workspaces --check` は rc=0。
+
+画面の再取得は macOS Accessibility の permission_denied によりできていない。
+「CLI 一覧で1件」を確認済みの範囲とし、画面自体の確認済みとは扱わない。作業中の既存エージェントは停止していない。
