@@ -16,6 +16,7 @@ import test_named_task_sessions
 PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
 sys.path.insert(0, str(PACKAGE / 'lib'))
 import project_tasks
+import project_workspaces
 import role_contract
 
 
@@ -51,7 +52,7 @@ class ProjectTaskTests(unittest.TestCase):
         self.context = mock.patch.dict(os.environ, self.env, clear=True)
         self.context.start()
         self.addCleanup(self.context.stop)
-        self.native = mock.patch.object(project_tasks, 'call', side_effect=self.call)
+        self.native = mock.patch.object(project_workspaces, 'call', side_effect=self.call)
         self.native.start()
         self.addCleanup(self.native.stop)
         self.launch_calls = mock.patch('task_session.call', side_effect=self.call)
@@ -274,6 +275,40 @@ class ProjectTaskTests(unittest.TestCase):
                 self.run_job(plan)
         self.assertEqual(self.calls, [])
         self.assertEqual(self.model_calls(), 0)
+
+    def test_incomplete_native_inventory_blocks_allocation_and_model(self):
+        for command in (('worktree', 'list'), ('repo', 'list')):
+            with self.subTest(command=command):
+                def incomplete(orca, *args):
+                    result = self.call(orca, *args)
+                    if args[:2] == command:
+                        result['truncated'] = True
+                    return result
+
+                plan = project_tasks.request_plan('kiwi', self.repo, 'Fixture implementation request',
+                                                  task_id='incomplete-' + command[0])
+                with mock.patch.object(project_workspaces, 'call', side_effect=incomplete):
+                    rc, record = self.run_job(plan)
+                self.assertEqual(rc, 4)
+                self.assertEqual(record['stage'], 'unconfirmed')
+                self.assertEqual(self.model_calls(), 0)
+                self.assertFalse(any(c[:2] == ('worktree', 'create') for c in self.calls))
+
+    def test_incomplete_terminal_inventory_after_collection_retains_checkout(self):
+        def incomplete_after_work(orca, *args):
+            result = self.call(orca, *args)
+            if (args[:2] == ('terminal', 'list') and self.latest is not None
+                    and (self.latest / 'finished.json').is_file()):
+                result['hostScope'] = {'omittedHostIds': ['fixture-missing-host']}
+            return result
+
+        with mock.patch.object(project_workspaces, 'call', side_effect=incomplete_after_work):
+            rc, record = self.run_job()
+        self.assertEqual(rc, 0)
+        self.assertEqual(record['cleanup'], 'terminal-inventory-unconfirmed-retained')
+        self.assertTrue(Path(record['targetPath']).is_dir())
+        self.assertEqual(self.model_calls(), 1)
+        self.assertFalse(any(c[:2] == ('worktree', 'rm') for c in self.calls))
 
     def test_repo_default_base_is_used_instead_of_current_feature_branch(self):
         initial = self.git('rev-parse', 'HEAD')

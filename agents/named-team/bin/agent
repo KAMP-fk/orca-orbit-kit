@@ -11,10 +11,36 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
 from task_session import launch_task, review_result
-from role_launch import launch_spec, EFFORT, REVIEW_MODEL
+from role_launch import launch_spec, EFFORT
 from role_contract import orca_command, local_orca_only, workspace_root, role_routing
 
-ROOT = Path(__file__).resolve().parent.parent
+
+def project_request(role, args, parser):
+    if args.interactive or args.batch_worker or args.cwd:
+        parser.error('--repo は依頼を受領する入口。interactive / batch-worker / cwd とは併用しない')
+    from project_tasks import request_plan, dispatch
+    try:
+        local_orca_only()
+        existing = None
+        if args.worktree:
+            if not args.worktree.startswith('path:') or not Path(args.worktree[5:]).is_absolute():
+                raise ValueError('--worktree は再利用する path:<絶対パス> を指定する')
+            existing = Path(args.worktree[5:]).resolve()
+        if args.read_only and args.access == 'edit':
+            raise ValueError('--read-only と編集依頼は併用しない')
+        plan = request_plan(role, args.repo, args.prompt,
+                            access=args.access or ('read' if args.read_only else None),
+                            base_ref=args.base_ref, task_id=args.task_id, origin=args.from_role,
+                            model=args.model, effort=args.effort, workspace=existing, dry_run=args.dry_run)
+        if args.dry_run:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+            return 0
+        orca = orca_command()
+        if not shutil.which(orca):
+            raise ValueError('Orca CLI が見つからない: ' + orca)
+        return dispatch(orca, plan, args.prompt, model=args.model, effort=args.effort, metadata=args.json)
+    except (ValueError, OSError, RuntimeError) as exc:
+        parser.error(str(exc))
 
 
 def main():
@@ -59,32 +85,8 @@ def main():
         parser.error('--interactive とタスク実行は同時に指定しない')
     if args.json and (role != 'potato' or not batch):
         parser.error('--json は Potato のタスク実行と一緒に指定する')
-    if role == 'potato' and ((args.model and args.model != REVIEW_MODEL) or (args.effort and args.effort != 'high')):
-        parser.error('Potato のレビューは claude-opus-5-5 / high を指定する')
     if args.repo:
-        if args.interactive or args.batch_worker or args.cwd:
-            parser.error('--repo は依頼を受領する入口。interactive / batch-worker / cwd とは併用しない')
-        from project_tasks import request_plan, dispatch
-        try:
-            local_orca_only()
-            existing = None
-            if args.worktree:
-                if not args.worktree.startswith('path:') or not Path(args.worktree[5:]).is_absolute():
-                    raise ValueError('--worktree は再利用する path:<絶対パス> を指定する')
-                existing = Path(args.worktree[5:]).resolve()
-            if args.read_only and args.access == 'edit':
-                raise ValueError('--read-only と編集依頼は併用しない')
-            plan = request_plan(role, args.repo, args.prompt, args.access or ('read' if args.read_only else None), args.base_ref, args.task_id,
-                                args.from_role, args.model, args.effort, existing, args.dry_run)
-            if args.dry_run:
-                print(json.dumps(plan, ensure_ascii=False, indent=2))
-                return 0
-            orca = orca_command()
-            if not shutil.which(orca):
-                raise ValueError('Orca CLI が見つからない: ' + orca)
-            return dispatch(orca, plan, args.prompt, args.model, args.effort, args.json)
-        except (ValueError, OSError, RuntimeError) as exc:
-            parser.error(str(exc))
+        return project_request(role, args, parser)
     if args.access or args.base_ref or args.task_id or args.from_role != 'owner':
         parser.error('案件の access / base-ref / task-id / from-role は --repo と一緒に指定する')
     if args.worktree and not (args.orca or task):
@@ -104,11 +106,9 @@ def main():
         parser.error('workspace が存在しない: ' + str(cwd))
     if batch and (not args.prompt or not args.prompt.strip()):
         parser.error('タスク実行には今回の依頼が必要')
-    if args.model is not None and (not args.model.strip() or args.model.startswith('-')):
-        parser.error('--model はモデル ID を指定する')
     try:
-        spec = launch_spec(role, cwd, args.prompt, args.model, args.effort, batch,
-                           args.dry_run, args.read_only)
+        spec = launch_spec(role, cwd, args.prompt, model=args.model, effort=args.effort,
+                           batch=batch, dry_run=args.dry_run, read_only=args.read_only)
     except ValueError as exc:
         parser.error(str(exc))
     command, environment = spec['command'], spec['environment']
@@ -134,7 +134,7 @@ def main():
         print(json.dumps({'role': role, 'displayName': role.capitalize(), 'cwd': str(cwd),
                           'roleRouting': role_routing(role),
                           'profile': str(installed), 'skill': str(skill), 'backend': backend,
-                          'requestedModel': REVIEW_MODEL if role == 'potato' else args.model,
+                          'requestedModel': spec['requestedModel'],
                           'requestedEffort': effort, 'mode': 'task' if task else 'orca' if args.orca else 'exec' if batch else 'interactive',
                           'taskWorkspace': 'path:' + str(worktree_path) if worktree_path else None,
                           'roleWorkspaceRoot': str(workspace_root(role)),

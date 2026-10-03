@@ -20,6 +20,18 @@ Owner の依頼: 相談窓口から担当へ依頼を渡し、担当が必要な
 依頼ファイル・CLI 引数・この起動手順は新たな承認ではない。
 concafe の最終独立 verdict と上位判断は現行の別 Codex タスク経路を使う。
 
+## 共通実装の責務
+
+| 正本 | 担当する処理 |
+|---|---|
+| `lib/checkout_context.py` | Banana の読み取り専用 Git 観測、checkout 照合、common dir と ref の解決。`banana/bin/context` はこの module の CLI。 |
+| `lib/project_workspaces.py` | Orca の登録・一覧の完全性確認、案件用 checkout の作成/再利用、所有・成果・終了を確認した cleanup。 |
+| `lib/project_tasks.py` | 依頼の計画と ID、排他、既存結果の再利用、実行の調整、結果と引き渡し先の保存。 |
+| `lib/role_launch.py` / `lib/task_session.py` | 共通の役・モデル・effort 設定、一回だけの実行、子プロセス終了・出力保存・実行タブの回収。 |
+
+共有 module を通常の import で参照する。CLI を別の module として動的に読み込まない。
+2026-10-03 の整理で CLI、依頼 ID/hash、保存 schema と既存結果の読込を維持した。
+
 ## 使い方
 
 依頼ファイルには対象・変更内容・制約・編集範囲/並行担当・観測できる受入条件を一度に揃える。
@@ -99,7 +111,7 @@ HEAD が開始 base に含まれ、実行結果と終了・タブ close を確�
 対象 worktree の owned terminal を閉じて空の一覧を確認し、`worktree rm` に `--force` を付けず、
 削除結果・path の不在・Orca 一覧を確認する。担当ホームと再利用 checkout は削除対象にしない。
 
-## 検証（2026-10-03）
+## 初回実装の検証（2026-10-03）
 
 新規19件の隔離 fixture で、受領・作成・結果回収・再送/同時投入、作成タイムアウト、
 既定 base と明示 SHA、未保存変更・未統合 commit・ignored file の保全、追加 terminal、
@@ -110,3 +122,8 @@ event monitor 23件も通過した。モデルを呼ぶレビュー試験では�
 Orca 実機ではモデル無しの backend fixture を使い、一件の worktree 作成、唯一の実行タブ、
 結果保存、終了・回収、owned terminal の停止、空の worktree の削除まで rc=0 で確認した。
 実在する専門担当へ作業依頼や正式レビューを送信したという結果ではない。
+
+共通実装の整理後は、案件21件・named lifecycle67件・Banana context14件・event monitor23件、
+計125件が rc=0。変更前との起動設定20通り・依頼計画4通りの一致も確認した。
+今回の整理では実モデル・実セッションを検証に使っていない。
+計画と実行結果は [リファクタリング記録](refactor-plan.md) に残す。

@@ -6,6 +6,37 @@ Owner の後続依頼「依頼を受領した担当が案件用 worktree を作�
 [案件用タスクの計画・実装・検証](project-tasks.md) に記録した。共通受付・作業場所の用意・
 結果回収・重複防止・統合前の保持・所有する worktree の安全な cleanup を実装済み。
 
+## 共通実装のリファクタリング計画（2026-10-03）
+
+Owner の依頼「一旦リファクタリングしよ」により、直前に追加した共通受付を整理する。
+
+1. 既存の案件・起動・checkout・監視の検査を実行し、変更前の動作を固定する。
+2. Banana の checkout 確認を共有 module に置き、CLI は薄い入口にする。
+   Git 状態確認、Orca の worktree/terminal 操作、依頼の進行・結果管理を分離する。
+3. 依頼 ID と保存先の導出、排他、完了結果の再利用、起動設定の重複を整理する。
+4. CLI 引数、起動設定、依頼 hash、保存 schema、二重起動防止と削除条件を保持して、
+   同じ隔離 fixture と配線・dry-run で検証する。モデルや稼働中セッションは検証に使わない。
+
+対象は named-team の共通実装と Banana の checkout 入口。並行中の reviewer の変更は保持する。
+この計画の検査は実装側の確認であり、独立 verdict ではない。
+
+実行結果:
+
+- 変更前123件の検査は rc=0。Git 観測を `checkout_context.py`、Orca の操作を
+  `project_workspaces.py` へ移し、`project_tasks.py` は受付・実行・回収の調整に絞った。
+- CLI の動的 import を除去。依頼の key/保存先と排他を共通化し、起動設定の検証を
+  `role_launch.py` に集約した。保存 schema と既存の role/model/effort は維持した。
+- 変更後は案件21件、named lifecycle67件、Banana context14件、event monitor23件、
+  計125件が rc=0。一覧が不完全な場合の作成・起動・削除抑止を2件追加した。
+- `25a6eec` と起動設定20通りを比較し、command・環境・metadata が一致。
+  移動した Git 観測3関数は AST が一致。配線 check と `git diff --check` は rc=0。
+  依頼計画も4通りが一致し、ID/hash・保存先・schema の互換性を確認した。
+
+検証は隔離 fixture と読み取り比較だけで実施。実モデルの呼出し、実セッションの作成・停止、
+既存の live state の移行は行っていない。
+
+## 初回のリファクタリング計画
+
 1. 現物と運用契約を確認し、入力・責任・成果物・引き渡し先を役割表にする。
 2. 各 skill の選択条件と境界を共通契約に合わせる。Tomato の人格原本はそのまま、Banana の開発手順は版管理可能な正本へ移し、旧 path を互換リンクにする。
 3. 役割メタデータと Orca executable 選択を一箇所に集める。Tomato/Banana の command・skill・profile を追加する。依頼ファイル入力と Peach の見える task 実行を用意する。
