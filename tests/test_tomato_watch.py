@@ -25,7 +25,9 @@ def fail(key):
 if name=='git':
  if cfg.get('deny_git_overrides') and any(key.startswith('GIT_') for key in os.environ): sys.exit('Git environment override was inherited')
  if 'fetch' in args: fail('fetch_rc')
- elif 'rev-parse' in args: print(cfg.get('main_sha','a'*40))
+ elif 'worktree' in args: sys.stdout.buffer.write(('worktree '+args[1]+'\0HEAD '+'a'*40+'\0branch refs/heads/main\0\0').encode())
+ elif 'rev-list' in args: print('0')
+ elif 'rev-parse' in args: print(args[1] if '--show-toplevel' in args else cfg.get('main_sha','a'*40))
  elif 'log' in args: fail('log_rc');print('fixture commit')
  else: sys.exit('unexpected git call')
 elif name=='gh':
