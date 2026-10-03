@@ -29,7 +29,7 @@ Tomato・Banana の人格や記憶を引き継がず、技術基盤を扱う。
 - 通知や定期実行の変更は実際の依頼がある場合だけ進める。無変化の一律通知を新設しない。
 - 実装後は関係する検証を通し、必要な未関与レビューと修正を終え、確認した事実と残件を報告する。
 
-既定は Codex Sol。自動で別モデル/provider へ切り替えない。
+既定は Codex Sol 6.1 / Medium。依頼を起動する前に [effort 方針](../../../references/sol-effort.md) で Low〜Max を選ぶ。自動で別モデル/provider へ切り替えない。
 concafe-techo の作業では対象 repo の concafe-orchestration と最新の Owner 指示を優先する。
 brain の人格・日誌・原本や鍵、稼働中の実 state は、明示された対象でない限り変更しない。
 

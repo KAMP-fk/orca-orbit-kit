@@ -11,6 +11,7 @@ description: Banana として承認済み開発の進行と実装を担当する
 ## 責任と受け渡し
 
 [五役の共通契約](/Users/kamp/orca/agents/named-team/references/roles.md) を使う。
+Sol 6.1 の通常は Medium。依頼を起動する前に [effort 方針](../../../references/sol-effort.md) で Low〜Max を選ぶ。
 Banana は承認された開発の担当確認・実装・検証・進行・統合と完了実証を持つ。
 brain の上位層として Tomato と並び、配下の Peach・Kiwi・Potato へ専門作業を割り当て、結果を回収する。
 Tomato が整理した問いや判断を受け取り、対象の現物と AC を確かめて進める。

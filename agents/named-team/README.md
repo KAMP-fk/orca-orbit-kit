@@ -14,6 +14,8 @@ brain の Tomato/Banana を上位層、Banana 配下の Peach/Kiwi/Potato を専
 | Potato | 固定差分の未関与技術確認 | Claude Opus 5.5 / high、Read / Glob / Grep |
 
 Melon の既存定義は維持する。モデルの自動 fallback はしない。
+Sol 6.1 は通常 Medium、作業に応じて Low / High / xhigh / Max を使う。
+用途・具体例・起動時の選択は [Sol effort 方針](references/sol-effort.md)。
 skill を適用しても今のチャットの model/effort・関与歴・権限は切り替わらない。
 concafe の正式な最終レビュー・判断は現行の別 Codex タスク経路を使う。
 
@@ -42,7 +44,8 @@ peach --dry-run CAF-123 --pr owner/repo#123
 ```
 
 `--dry-run` は起動設定だけを返す。モデル/Orca セッション・外部取得は行わない。
-Codex の複雑な実装は `--effort high`、明示モデルは `--model <ID>`。
+Codex の effort は仕事に応じて `--effort low|medium|high|xhigh|max` で指定し、
+省略時は Medium。明示モデルは `--model <ID>`。
 Potato のモデルと effort は固定。Peach の既存 `--backend codex` は明示互換だけ。
 `--json` は Potato の検証済み result metadata を返す。
 
