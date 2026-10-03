@@ -3,6 +3,7 @@
 五役の責任・引き渡し先・判定の効力は [references/roles.md](references/roles.md)。
 今回の計画は [references/refactor-plan.md](references/refactor-plan.md)。
 役割名、workspace 名、provider、effort、skill の場所は `roles.json` が正本。
+brain の Tomato/Banana を上位層、Banana 配下の Peach/Kiwi/Potato を専門担当とする。通常の割当・回収は Banana、相談事項の確認は Tomato または Fable。構成・相談の分け方は [共通契約](references/roles.md) に従う。
 
 | 名前 | 責任 | 通常の実行 |
 |---|---|---|
@@ -84,6 +85,8 @@ base config、trust、approval、sandbox 設定は変更しない。
 `bin/start-workspaces` は六役のカードの準備・確認だけを行い、待機エージェントを起動しない。
 役の起動先は `roles.json` の `workspaceRoot` で固定する。Tomato/Banana は既存の brain worktree、Peach は既存の reviewer project を再利用し、従来の表示名も認識する。Kiwi/Potato/Melon のホームは skills project のカード。別 project の同名開発 worktree と混同しない。
 Orca 全体の一覧を取得してホームを照合し、同じホームに複数の候補がある場合や一覧が不完全な場合は作成・起動を止める。既存の brain/reviewer ホームが見つからない場合も別 project に代替カードを作らない。
+`--check` は既存ホームと専門担当の進行・回収先を読み取り確認し、`coordinatorWorktreeId` を返す。異なる project 間の役の上下関係は `parentRole` で管理し、同一 project 内に限られる Orca の Git ワークスペース親子関係を変更しない。
+タスク保存と dry-run の `roleRouting` に上位/専門担当・通常の回収担当・相談先を記録する。この構成は実行中セッションを変更せず、相談先への送信や判断の委任を追加で許可しない。
 Orca executable は ORCA_CLI_COMMAND、dev session、Linux、macOS の順に現行ガイドどおり選択し、別 build へ fallback しない。
 操作を行う担当はその executable の `orca-cli`、監督付き連携のときだけ `orchestration` を読む。
 

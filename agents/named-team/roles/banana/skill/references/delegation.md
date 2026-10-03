@@ -15,7 +15,10 @@ concafe の新規 subagent / 追加依頼の禁止を名前付き launcher で�
 
 役割は [共通契約](/Users/kamp/orca/agents/named-team/references/roles.md) で選ぶ。
 Kiwi は観測・引き継ぎ基盤、Peach は In Review Issue の AC 判定、Potato は固定差分の技術確認。
-直接依頼を受けた担当は依頼元へ結果を返し、不要な中継担当を増やさない。
+この三役は Banana の配下の専門担当。通常の開発進行では Banana が割当と回収を持つ。
+相談事項は意図・前提の整理なら Tomato、材料が揃った具体的な選択なら Fable に確認する。
+判断と決定者を回収して進行へ反映し、未決の判断を承認扱いにしない。
+持ち主から直接依頼を受けた担当はその依頼元へ結果を返してよい。並行する進行責任者は増やさない。
 
 ## 渡す情報
 

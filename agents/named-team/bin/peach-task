@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'lib'))
-from role_contract import orca_command, local_orca_only, workspace_root
+from role_contract import orca_command, local_orca_only, workspace_root, role_routing
 from task_session import launch_task
 
 
@@ -46,6 +46,7 @@ def main():
     environment['ORCA_CLI_COMMAND'] = orca
     if args.dry_run:
         print(json.dumps({'role': 'peach', 'mode': 'task', 'collector': 'stdout',
+                          'roleRouting': role_routing('peach'),
                           'taskWorkspace': workspace,
                           'roleWorkspaceRoot': str(workspace_root('peach')),
                           'argv': command, 'orca': orca, 'visible': True,

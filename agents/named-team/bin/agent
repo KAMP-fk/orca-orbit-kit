@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
 from task_session import launch_task, review_result
-from role_contract import LAUNCH_ROLES, ROLES, skill_root, orca_command, local_orca_only, workspace_root
+from role_contract import LAUNCH_ROLES, ROLES, skill_root, orca_command, local_orca_only, workspace_root, role_routing
 
 ROOT = Path(__file__).resolve().parent.parent
 EFFORT = {name: ROLES[name]['effort'] for name in LAUNCH_ROLES}
@@ -147,6 +147,7 @@ def main():
         launch = command
     if args.dry_run:
         print(json.dumps({'role': role, 'displayName': role.capitalize(), 'cwd': str(cwd),
+                          'roleRouting': role_routing(role),
                           'profile': str(installed), 'skill': str(skill), 'backend': backend,
                           'requestedModel': REVIEW_MODEL if role == 'potato' else args.model,
                           'requestedEffort': effort, 'mode': 'task' if task else 'orca' if args.orca else 'exec' if batch else 'interactive',

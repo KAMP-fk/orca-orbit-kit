@@ -115,6 +115,13 @@ class TaskSessionTests(unittest.TestCase):
                 self.assertEqual(calls[-1][:2], ['terminal','close'])
                 self.assertEqual(calls[-1][calls[-1].index('--terminal') + 1], 'term_fixture')
                 run = self.run_dir()
+                routing = json.loads((run / 'request.json').read_text())['roleRouting']
+                if role in ('kiwi', 'potato'):
+                    self.assertEqual(routing['parentRole'], 'banana')
+                    self.assertEqual(routing['consultation'], ['tomato', 'fable'])
+                elif role in ('tomato', 'banana'):
+                    self.assertEqual(routing['layer'], 'upper')
+                    self.assertIsNone(routing['parentRole'])
                 self.assertTrue((run / 'closed.json').is_file())
                 self.assertTrue((run / 'progress.log').read_text())
                 visible = (run / 'visible.txt').read_text()

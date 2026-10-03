@@ -15,6 +15,10 @@ def workspace_root(role):
     return Path(ROLES[role]['workspaceRoot']).expanduser().absolute()
 
 
+def role_routing(role):
+    return {key: ROLES[role][key] for key in ('layer', 'parentRole', 'consultation') if key in ROLES[role]}
+
+
 def find_workspace(role, snapshot, required=True):
     """Resolve the declared role home, preserving old titles and existing history."""
     if snapshot.get('truncated') or 'local' in snapshot.get('hostScope', {}).get('omittedHostIds', []):

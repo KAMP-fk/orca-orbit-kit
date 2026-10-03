@@ -69,3 +69,37 @@ exact id 指定、force/hook なしで実行。各応答は removed=true。
 | `git diff --check` | rc=0 |
 
 自動起動の automation は未追加。モデルを使った起動テストも行っていない。
+
+## 上位層と専門担当の構成 — 2026-10-03 JST
+
+Owner の指定: brain に上位層の Tomato/Banana、その下に Peach/Kiwi/Potato。
+相談事項は Tomato または Fable に確認する。
+
+実行計画と結果:
+
+1. 既存の共通契約、五役、Fable の判断手順とホームを確認した。
+2. `roles.json` の `layer` / `parentRole` / `consultation` に構成を定義し、
+   五役の skill、関係する profile、Banana の分担と Tomato/Fable の受渡し手順へ反映した。
+   通常の割当と成果回収は Banana、意図・前提・説明の整理は Tomato、材料が揃った
+   具体的な選択は委任された Fable の経路を使う。専門レビューの独立性は維持する。
+3. 既存ホームを使う確認出力とタスク/dry-run に構成情報を追加した。
+   `start-workspaces --check` は専門三役の `coordinatorWorktreeId` が既存の
+   brain/Banana の完全な ID を指すことを確認する。
+4. 関連する fixture テスト、スキル検査、配線、既存ホームと dry-run を確認した。
+
+Orca のネイティブな親子設定は同じ repo・host・project に限られる。
+異なる project の既存ホームへ親を設定する試行は拒否され、再取得した一覧の親は
+変更されていない。無効な設定操作を行う実装は取り除き、役の構成は共通メタデータと
+依頼・報告の経路で管理する。新しいカード・モデルセッションは作成していない。
+
+| 検査 | 結果 |
+|---|---|
+| `python3 -B -m unittest discover -s tests -p 'test_named*.py'` | 50件、rc=0 |
+| `python3 -B -m unittest discover -s tests -p 'test_agent_refactor.py' -k orca_peach` | 2件、rc=0 |
+| skill-creator `quick_validate.validate_skill` | 五役成功、一時 PyYAML のみ使用 |
+| profile TOML と Python の構文読込 | 3 profile / 5 entry・module 成功、既定モデル・effort を保持 |
+| `start-workspaces --check` / 両 installer `--check` | 既存六役 / 15 + 7リンク、rc=0 |
+| インストール済み五役の dry-run | 上位/専門担当・通常の回収担当・相談先を確認、startsSession=false |
+| 両 source repo の `git diff --check` | rc=0 |
+
+定義は次の起動・依頼から使用する。相談送信・Fable の実判断・自動検知/起動はこの反映では実行していない。

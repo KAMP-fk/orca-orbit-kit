@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'lib'))
-from role_contract import NAMES, orca_command, local_orca_only, find_workspace, workspace_root
+from role_contract import NAMES, ROLES, orca_command, local_orca_only, find_workspace, workspace_root, role_routing
 
 FOLDER = Path.home() / '.agents/skills'
 
@@ -24,7 +24,7 @@ def call(*args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('role', nargs='?', choices=NAMES)
-    parser.add_argument('--check', action='store_true', help='Read-only status; do not launch or repair')
+    parser.add_argument('--check', action='store_true', help='Read-only home and coordination check')
     args = parser.parse_args()
     local_orca_only()
     roles = [args.role] if args.role else list(NAMES)
@@ -35,6 +35,11 @@ def main():
     for role, target in targets.items():
         if target is None and (args.check or workspace_root(role) != FOLDER):
             raise RuntimeError('Missing role home: ' + role + ' at ' + str(workspace_root(role)))
+    parents = {role: find_workspace(ROLES[role]['parentRole'], snapshot)['id']
+               if ROLES[role]['parentRole'] else None
+               for role in roles if 'parentRole' in ROLES[role]}
+    # Role supervision spans projects. Orca's Git lineage cannot cross that boundary.
+    # Record the coordinator home without changing native parentWorktreeId metadata.
     if not args.check:
         subprocess.run([sys.executable, str(ROOT / 'bin/setup')], check=True)
     repo = None
@@ -52,6 +57,8 @@ def main():
         # Task sessions are created by the role launcher and closed after result collection.
         # Idle agents make workspace cards look active without any assigned task.
         print(json.dumps({'role': role, 'workspace': target['displayName'], 'state': 'ready',
+                          **role_routing(role), 'coordinatorWorktreeId': parents.get(role),
+                          'orcaParentWorktreeId': target.get('parentWorktreeId'),
                           'handles': [t['handle'] for t in terminals],
                           'worktreeId': wid}, ensure_ascii=False))
 

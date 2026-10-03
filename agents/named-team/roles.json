@@ -1,8 +1,8 @@
 {
-  "tomato": {"workspace": "Tomato｜相談・受け渡し", "workspaceRoot": "~/orca/workspaces/brain/Tomato", "workspaceAliases": ["Tomato｜相談・判断・仕事の受け渡し"], "backend": "codex", "effort": "medium", "skill": "~/.claude/skills/Tomato"},
-  "banana": {"workspace": "Banana｜開発の進行・実装", "workspaceRoot": "~/orca/workspaces/brain/Banana", "workspaceAliases": ["Banana｜横断開発・実装・PR"], "backend": "codex", "effort": "medium", "skill": "roles/banana/skill"},
-  "kiwi": {"workspace": "Kiwi｜観測・引継ぎ基盤の開発", "workspaceRoot": "~/.agents/skills", "backend": "codex", "effort": "medium", "skill": "roles/kiwi/skill"},
-  "peach": {"workspace": "Peach｜Issue の受入判定", "workspaceRoot": "~/orca/agents/linear-inreview-reviewer", "workspaceAliases": ["Peach｜Linear In Review のレビュー"], "backend": "reviewer", "effort": "high", "skill": "../linear-inreview-reviewer/skill"},
-  "potato": {"workspace": "Potato｜独立技術レビュー", "workspaceRoot": "~/.agents/skills", "backend": "claude", "effort": "high", "skill": "roles/potato/skill"},
+  "tomato": {"layer": "upper", "parentRole": null, "consultation": ["fable"], "workspace": "Tomato｜相談・受け渡し", "workspaceRoot": "~/orca/workspaces/brain/Tomato", "workspaceAliases": ["Tomato｜相談・判断・仕事の受け渡し"], "backend": "codex", "effort": "medium", "skill": "~/.claude/skills/Tomato"},
+  "banana": {"layer": "upper", "parentRole": null, "consultation": ["tomato", "fable"], "workspace": "Banana｜開発の進行・実装", "workspaceRoot": "~/orca/workspaces/brain/Banana", "workspaceAliases": ["Banana｜横断開発・実装・PR"], "backend": "codex", "effort": "medium", "skill": "roles/banana/skill"},
+  "kiwi": {"layer": "specialist", "parentRole": "banana", "consultation": ["tomato", "fable"], "workspace": "Kiwi｜観測・引継ぎ基盤の開発", "workspaceRoot": "~/.agents/skills", "backend": "codex", "effort": "medium", "skill": "roles/kiwi/skill"},
+  "peach": {"layer": "specialist", "parentRole": "banana", "consultation": ["tomato", "fable"], "workspace": "Peach｜Issue の受入判定", "workspaceRoot": "~/orca/agents/linear-inreview-reviewer", "workspaceAliases": ["Peach｜Linear In Review のレビュー"], "backend": "reviewer", "effort": "high", "skill": "../linear-inreview-reviewer/skill"},
+  "potato": {"layer": "specialist", "parentRole": "banana", "consultation": ["tomato", "fable"], "workspace": "Potato｜独立技術レビュー", "workspaceRoot": "~/.agents/skills", "backend": "claude", "effort": "high", "skill": "roles/potato/skill"},
   "melon": {"workspace": "Melon｜レビュー基盤の開発", "workspaceRoot": "~/.agents/skills", "backend": "codex", "effort": "medium", "skill": "roles/melon/skill"}
 }

@@ -18,7 +18,8 @@ class WorkspaceTests(unittest.TestCase):
         return {'truncated': False, 'hostScope': {'hostIds': ['local'], 'omittedHostIds': []},
                 'worktrees': [{'id': role + '-existing', 'hostId': 'local',
                                'path': str(contract.workspace_root(role)),
-                               'displayName': value.get('workspaceAliases', [value['workspace']])[0]}
+                               'displayName': value.get('workspaceAliases', [value['workspace']])[0],
+                               'parentWorktreeId': None}
                               for role, value in contract.ROLES.items()]}
 
     def test_old_titles_select_original_brain_and_reviewer_homes(self):
@@ -100,4 +101,27 @@ print(json.dumps({'ok':True,'result':result}))
         result, calls = self.startup(snapshot, 'tomato')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Ambiguous workspace', result.stderr)
+        self.assertEqual([call[:2] for call in calls], [['worktree','list']])
+
+    def test_coordination_preserves_existing_native_git_lineage(self):
+        snapshot = self.snapshot()
+        next(row for row in snapshot['worktrees'] if row['id'] == 'peach-existing')['parentWorktreeId'] = 'existing-git-parent'
+        result, calls = self.startup(snapshot, '--check')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reports = {row['role']:row for row in map(json.loads, result.stdout.splitlines())}
+        for role in ('peach', 'kiwi', 'potato'):
+            self.assertEqual(reports[role]['coordinatorWorktreeId'], 'banana-existing')
+        self.assertEqual(reports['peach']['orcaParentWorktreeId'], 'existing-git-parent')
+        self.assertIsNone(reports['tomato']['coordinatorWorktreeId'])
+        self.assertIsNone(reports['banana']['coordinatorWorktreeId'])
+        self.assertNotIn('parentRole', reports['melon'])
+        self.assertEqual(reports['potato']['consultation'], ['tomato','fable'])
+        self.assertTrue(all(call[:2] in (['worktree','list'], ['terminal','list']) for call in calls))
+
+    def test_missing_coordinator_is_detected_before_creating_or_mutating_a_card(self):
+        snapshot = self.snapshot()
+        snapshot['worktrees'] = [row for row in snapshot['worktrees'] if row['id'] != 'banana-existing']
+        result, calls = self.startup(snapshot, 'kiwi')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing role home: banana', result.stderr)
         self.assertEqual([call[:2] for call in calls], [['worktree','list']])

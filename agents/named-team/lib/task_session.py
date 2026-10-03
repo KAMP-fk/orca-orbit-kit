@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 import queue
-from role_contract import find_workspace
+from role_contract import find_workspace, role_routing
 
 
 
@@ -38,6 +38,7 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     run = Path(tempfile.mkdtemp(prefix=role + '-', dir=state_root))
     save(run / 'request.json', {'role': role, 'command': command, 'cwd': str(cwd),
+                              'roleRouting': role_routing(role),
                               'environment': environment, 'worktreeId': target['id'],
                               'collector': collector or ('claude' if role == 'potato' else 'codex')})
     worker = ['exec', sys.executable, str(Path(__file__).resolve()), '--worker', str(run)]
