@@ -119,6 +119,10 @@ def main():
             command += ['-m', args.model]
         if batch:
             command += ['exec']
+        else:
+            # A manually opened role tab should reach its input prompt directly.
+            # Keep the installed version and all trust/permission settings intact.
+            command += ['-c', 'check_for_update_on_startup=false']
         environment = {'CODEX_HOME': str(config_home)}
     executable = shutil.which(backend)
     if not executable and not args.dry_run:

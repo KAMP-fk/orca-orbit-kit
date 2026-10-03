@@ -198,4 +198,48 @@ Owner の依頼: Kiwi/Potato/Melon のタブと裏の稼働を確認する。
 
 調査記録: `/Users/kamp/orca/reports/role-runtime-inspection-20261003.json`。
 独立 review PASS ではなく、Orca 自体の復元処理を修正・再起動したという報告でもない。
+
+## 2026-10-03 新規タブの対話エージェント起動
+
+Owner の依頼: 担当ホームで新規タブを開いた時点で、Tomato/Banana と同様に
+Claude または Codex の担当エージェントが入力待ちになっている構成にする。
+
+計画と実施:
+
+1. 既存の role profile と Orca の新規 terminal の shell 起動を確認した。
+   既定タブの設定 UI は Accessibility 権限で取得できず、Orca 内の対話 login zsh の
+   起動処理で担当ホームだけに適用する方式を選んだ。
+2. `roles.json` の exact home と Orca の worktree/terminal identity を照合する
+   `bin/tab-agent` と `shell/tab-autostart.zsh` を追加した。依頼・resume 引数を渡さず、
+   既存の role profile と Claude の model/effort/読み取り制限を使う。
+3. Orca の明示コマンド用 zsh wrapper の `ready` / `identity` を検出して起動を見送る。
+   同じ terminal handle の再読込・入れ子の login shell も二重起動しない。
+4. installer の `--tab-autostart` で `.zshrc` の専用 block だけを配線した。
+   既存設定と file mode の保持、再実行、check、owned uninstall、競合保存を確認した。
+   Codex の対話起動だけ更新確認を抑え、インストール済みバージョンを維持する。
+5. Kiwi/Melon/Potato の通常の新規タブを開き、入力待ちの実画面と `tui-idle` を確認した。
+   Codex の初回更新案内はスキップした。Potato は専用ホームの初回 folder 確認後に
+   `@potato` / Opus 5.5 / high の入力待ちを確認した。作業依頼は送信していない。
+   調査・明示コマンドの検証タブは、その handle の `--tab` close だけで除去した。
+
+検証:
+
+| 検証 | 結果 |
+|---|---|
+| `test_named_*.py` | 67件、rc=0（新規タブの隔離 fixture 8件を含む） |
+| `test_event_monitor.py` | 23件、rc=0 |
+| `test_agent_refactor.py` | 46件、rc=0 |
+| 六役の新規タブ fixture | 正しい profile / model / effort、依頼無し |
+| named installer `--check --tab-autostart` / Peach installer `--check` | 15リンク + 専用 block / 7リンク、rc=0 |
+| 六役の `start-workspaces --check` | 既存ホームを照合、rc=0 |
+| Kiwi / Melon の実画面 | GPT-6.1-Sol / medium、入力待ち |
+| Potato の実画面 | @potato / Opus 5.5 / high、入力待ち |
+| 三タブの `terminal wait --for tui-idle` | 全て satisfied=true |
+| Kiwi の明示 printf コマンド付きタブ | printf を実行して通常 shell に戻る。モデルは起動せず |
+| `.zshrc` / hook の `zsh -n` | rc=0 |
+
+反映範囲は現在の Orca の通常の新規 zsh タブ。既存の実行中タブと他の project の
+既定 agent 設定は変更しない。Peach の実レビューは従来の evidence pipeline を使い、
+concafe の最終独立 verdict と上位判断の別 Codex タスク経路を維持する。
+モデルを呼ぶレビュー試験や署名 verdict の発行ではない。
 モデルを使った再実行テストは行わず、未確認の旧 Claude 3つを停止済みとは扱わない。

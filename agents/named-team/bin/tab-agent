@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Open the declared role's idle interactive session in its existing Orca home."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+from role_contract import ROLES, local_orca_only, skill_root, workspace_root
+
+
+def selected_role():
+    env = os.environ
+    if env.get('TERM_PROGRAM') != 'Orca' or not env.get('ORCA_TERMINAL_HANDLE', '').startswith('term_'):
+        return None
+    local_orca_only()
+    cwd = Path.cwd().resolve()
+    worktree = env.get('ORCA_WORKTREE_ID', '')
+    if '::' not in worktree or worktree.rsplit('::', 1)[1] != str(cwd):
+        return None
+    matches = [role for role in ROLES if workspace_root(role).resolve() == cwd]
+    if len(matches) > 1:
+        raise ValueError('担当ホームが重複しているため自動起動を中止')
+    return matches[0] if matches else None
+
+
+def peach_command():
+    package = ROOT.parent / 'linear-inreview-reviewer'
+    installed = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'agents/peach.md'
+    skill = skill_root('peach') / 'SKILL.md'
+    settings = package / 'claude/settings.json'
+    if not installed.is_file() or installed.resolve() != (package / 'claude/agent.md').resolve() or not skill.is_file():
+        raise ValueError('Peach の配線を install.sh --check で確認してください')
+    policy = json.loads(settings.read_text(encoding='utf-8'))
+    model = 'claude-opus-5-5'
+    if (policy.get('model') != model or policy.get('effortLevel') != 'high'
+            or policy.get('disableAllHooks') is not True
+            or policy.get('permissions', {}).get('disableBypassPermissionsMode') != 'disable'):
+        raise ValueError('Peach の既存 model / effort / permissions 設定が一致しない')
+    executable = shutil.which('claude')
+    if not executable:
+        raise ValueError('claude が見つからない')
+    definition = {'peach': {'description': 'In Review Issue acceptance reviewer',
+                           'prompt': skill.read_text(encoding='utf-8').split('\n---\n', 1)[-1].strip(),
+                           'model': model, 'effort': 'high', 'tools': ['Read', 'Glob', 'Grep'],
+                           'permissionMode': 'dontAsk'}}
+    return [executable, '--model', model, '--effort', 'high', '--restricted', '--disable-slash-commands',
+            '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk',
+            '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--settings', str(settings),
+            '--agents', json.dumps(definition, ensure_ascii=False), '--agent', 'peach',
+            '--add-dir', str(skill.parent)]
+
+
+def main():
+    parser = argparse.ArgumentParser(description='担当ホームの新規タブを対話セッションで開始。依頼の送信・復元はしない')
+    parser.add_argument('--resolve', action='store_true', help='該当する role 名だけを返す。モデルは起動しない')
+    args = parser.parse_args()
+    try:
+        role = selected_role()
+        if not role:
+            return 0
+        if args.resolve:
+            print(role)
+            return 0
+        print(role.capitalize() + ' の対話セッションを起動します。', flush=True)
+        if role == 'peach':
+            command = peach_command()
+            os.environ['CLAUDE_CODE_EFFORT_LEVEL'] = 'high'
+        else:
+            command = [sys.executable, str(ROOT / 'bin/agent'), role, '--interactive', '--cwd', str(Path.cwd())]
+        os.execvpe(command[0], command, os.environ.copy())
+    except (OSError, ValueError, KeyError) as exc:
+        print('新規タブの自動起動を中止: ' + str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

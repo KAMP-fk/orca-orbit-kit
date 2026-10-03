@@ -35,7 +35,7 @@ peach --orca CAF-123 --pr owner/repo#123
 ```
 
 依頼付きの通常起動、`--task`、旧 `--exec`、依頼付き `--orca` は一件ごとの新しい見えるタブ。
-対話を続ける場合は明示して起動する。
+対話を続ける場合は明示して起動する。担当ホームの通常の新規タブでも、以下の自動起動を使える。
 
 ```sh
 tomato --interactive --orca --cwd /Users/kamp/brain
@@ -48,6 +48,38 @@ Codex の effort は仕事に応じて `--effort low|medium|high|xhigh|max` で�
 省略時は Medium。明示モデルは `--model <ID>`。
 Potato のモデルと effort は固定。Peach の既存 `--backend codex` は明示互換だけ。
 `--json` は Potato の検証済み result metadata を返す。
+
+## 担当ホームの新規タブ
+
+Owner の指示により、Orca で担当ホームの通常の新規タブを開くと、その役の対話エージェントを
+入力待ちで起動する。Tomato/Banana/Kiwi/Melon は既存 Codex profile の Sol 6.1 / Medium、
+Peach/Potato は既存の Claude Opus 5.5 / High と読み取り制限を使う。
+依頼や過去のセッションを渡さず、モデルを閉じると通常の shell に戻る。
+
+```sh
+/Users/kamp/orca/agents/named-team/install.py --tab-autostart
+/Users/kamp/orca/agents/named-team/install.py --check --tab-autostart
+```
+
+`~/.zshrc` 末尾の専用 block から `shell/tab-autostart.zsh` を読む。
+対話 login zsh、`TERM_PROGRAM=Orca`、terminal handle、完全な worktree ID と
+`roles.json` の担当ホームが一致したときだけ適用する。他プロジェクトや担当ホームの
+サブディレクトリには適用しない。Orca が明示コマンドを配送する shell-ready wrapper の
+`ready` / `identity` を検出したタブでは起動せず、そのコマンドと入れ子の shell を優先する。
+同じ handle の再読込・入れ子の shell でも二重起動しない。
+既存タブの実行中プロセスには変更を加えない。新しく開くタブから適用する。
+Orca の初期コマンド検出は現在の zsh wrapper に合わせており、他の shell には未適用。
+
+Peach の対話タブは Issue の自動取得や署名レビューを開始しない。
+実レビューは引き続き `peach <ISSUE-ID>` の evidence pipeline を使う。
+concafe の正式な最終レビュー・判断の別 Codex タスク経路も維持する。
+未確認フォルダの初回確認が出ることはあり、起動引数で迂回しない。
+Codex の対話起動は `check_for_update_on_startup=false` をその回の引数だけに指定し、
+更新案内で入力待ちが止まるのを防ぐ。インストール済みのバージョンは変更しない。
+
+通常の install は shell 設定を変更しない。`--tab-autostart` は専用 block だけを追加し、
+手編集された block や別の `.zshrc` リンクは保存して変更前に中断する。
+`--uninstall` は所有する block とリンクだけを除去し、他の shell 設定を保持する。
 
 `--cwd` は対象コード、`--worktree path:<絶対パス>` は登録済みのタブ配置先。
 名前付き launcher で両方を指定した場合は path の一致を検証する。
@@ -90,7 +122,7 @@ Banana の正本は `roles/banana/skill`。従来の `~/.claude/skills/Banana` �
 Kiwi/Potato/Melon の正本も `roles/<name>`。Peach の配線と packet は既存 package が持つ。
 base config、trust、approval、sandbox 設定は変更しない。
 全対象を先に確認し、無関係のファイル/リンクがあれば配線前に中断する。
-`--uninstall` はこの package を指すリンクだけを外す。
+`--uninstall` はこの package を指すリンクと専用の shell block だけを外す。
 
 `bin/start-workspaces` は六役の既存ホームを確認し、通常実行では command/profile の配線も行う。カードや待機エージェントは作成しない。
 役の起動先は `roles.json` の `workspaceRoot` で固定する。Tomato/Banana は既存の brain worktree、Peach は既存の reviewer project、Kiwi/Potato/Melon は既存の Orca 開発 worktree を担当ホームとして使う。従来の表示名も認識する。skills project はスキルを置く一つのフォルダとして維持し、役ごとのカードを置かない。

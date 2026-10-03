@@ -8,6 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / 'lib'))
 from role_contract import LAUNCH_ROLES, skill_root
+import tab_startup
 
 ROLES = LAUNCH_ROLES
 
@@ -18,6 +19,7 @@ def main():
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--uninstall', action='store_true')
     parser.add_argument('--home', type=Path, default=Path.home(), help='対象 user home。通常は省略')
+    parser.add_argument('--tab-autostart', action='store_true', help='Orca の担当ホームの新規 zsh タブで対話エージェントを起動')
     args = parser.parse_args()
     target_home = args.home.expanduser().resolve()
     # Custom home is useful for an isolated installation check; the caller's env is untouched.
@@ -33,6 +35,17 @@ def main():
             links.append((config_home / (role + '.config.toml'), ROOT / 'roles' / role / 'codex/profile.config.toml'))
     legacy_profile = config_home / 'potato.config.toml'
     legacy_source = ROOT / 'roles/potato/codex/profile.config.toml'
+    zshrc = target_home / '.zshrc'
+    startup_plan = None
+    if args.tab_autostart or args.uninstall:
+        try:
+            if args.tab_autostart and not args.uninstall:
+                for source in (ROOT / 'shell/tab-autostart.zsh', ROOT / 'bin/tab-agent'):
+                    if not source.is_file():
+                        raise ValueError('自動起動の source が無い: ' + str(source))
+            startup_plan = tab_startup.plan(zshrc, not args.uninstall)
+        except (OSError, UnicodeError, ValueError) as exc:
+            parser.error(str(exc))
     def owned(path, source):
         return path.is_symlink() and path.resolve() == source.resolve()
     if args.check:
@@ -44,8 +57,16 @@ def main():
         if os.path.lexists(legacy_profile):
             print('NG  retired Codex review profile: ' + str(legacy_profile))
             bad = True
+        if args.tab_autostart:
+            ok = startup_plan[0] == startup_plan[1]
+            print(('OK  ' if ok else 'NG  ') + 'Orca tab autostart: ' + str(zshrc))
+            bad |= not ok
         return 1 if bad else 0
     if args.uninstall:
+        try:
+            tab_startup.apply(zshrc, *startup_plan)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
         for path, source in links:
             if owned(path, source):
                 path.unlink();print('removed ' + str(path))
@@ -67,7 +88,9 @@ def main():
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.symlink_to(source);created.append((path, source))
-    except OSError as exc:
+        if startup_plan is not None:
+            tab_startup.apply(zshrc, *startup_plan)
+    except (OSError, ValueError) as exc:
         for path, source in reversed(created):
             if owned(path, source):
                 path.unlink()
@@ -75,6 +98,8 @@ def main():
         return 1
     for path, _ in links:
         print('ready ' + str(path))
+    if args.tab_autostart:
+        print('ready Orca tab autostart: ' + str(zshrc))
     if owned(legacy_profile, legacy_source):
         legacy_profile.unlink();print('retired ' + str(legacy_profile))
     return 0
