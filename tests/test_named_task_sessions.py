@@ -35,10 +35,16 @@ elif a[:2]==['terminal','create']:
   executed=subprocess.run(['/bin/sh','-c',command], text=True, capture_output=True)
   (run/'visible.txt').write_text(executed.stdout+executed.stderr)
  result={'terminal':{'handle':'term_fixture','tabId':'fixture-tab'}}
- if os.environ.get('FIXTURE_CREATE_TIMEOUT'): sys.exit('Timed out waiting for terminal handle after creation')
+ if os.environ.get('FIXTURE_CREATE_TIMEOUT'):
+  if os.environ.get('FIXTURE_CREATE_TIMEOUT_ONCE'):
+   mark=root/'timed-out-once'
+   if not mark.exists():
+    mark.write_text('1'); sys.exit('Timed out waiting for terminal handle after creation')
+  else: sys.exit('Timed out waiting for terminal handle after creation')
 elif a[:2]==['terminal','list']:
  run=Path((root/'latest').read_text())
- result={'terminals':[{'handle':'term_fixture','tabId':'fixture-tab',
+ if os.environ.get('FIXTURE_LIST_EMPTY'): result={'terminals':[]}
+ else: result={'terminals':[{'handle':'term_fixture','tabId':'fixture-tab',
    'title':'Potato · '+run.name}]}
 elif a[:2]==['terminal','read']:
  result={'terminal':{'status':'exited'}}
@@ -151,6 +157,21 @@ class TaskSessionTests(unittest.TestCase):
         result = self.launch('potato', 'review request')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sum(c[:2] == ['terminal','create'] for c in self.calls()), 1)
+        self.assertTrue((self.run_dir() / 'closed.json').exists())
+
+    def test_absent_tab_is_recreated_once_without_focus(self):
+        # --focus waits for the UI to switch; measured 2026-10-03 it times out and
+        # creates nothing. After confirming absence, recover with one no-focus create.
+        self.env['FIXTURE_CREATE_TIMEOUT'] = '1'
+        self.env['FIXTURE_LIST_EMPTY'] = '1'
+        self.env['FIXTURE_CREATE_TIMEOUT_ONCE'] = '1'
+        self.env['NAMED_TEAM_TAB_WAIT_SECONDS'] = '1'
+        result = self.launch('potato', 'review request')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        creates = [c for c in self.calls() if c[:2] == ['terminal', 'create']]
+        self.assertEqual(len(creates), 2, creates)
+        self.assertIn('--focus', creates[0])
+        self.assertNotIn('--focus', creates[1])
         self.assertTrue((self.run_dir() / 'closed.json').exists())
 
     def test_literal_request_and_config_are_preserved_in_fresh_terminal(self):

@@ -51,7 +51,9 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
         # The renderer can adopt a created tab after the CLI response times out.
         # Never create or send again: recover only the same uniquely titled tab.
         print('タブ作成の応答は未確認。同じタブだけを照合します: ' + str(run), file=sys.stderr, flush=True)
-        deadline = time.monotonic() + 60
+        # Default 60s covers the late-adoption race; tests shorten it.
+        wait = float(os.environ.get('NAMED_TEAM_TAB_WAIT_SECONDS') or 60)
+        deadline = time.monotonic() + wait
         terminal = None
         while time.monotonic() < deadline:
             rows = call(orca, 'terminal', 'list', '--worktree', selector)['terminals']
@@ -63,7 +65,19 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
                 break
             time.sleep(0.5)
         if terminal is None:
-            raise RuntimeError('タブ作成を確認できない。再起動しない。結果の場所: ' + str(run) + '\n' + str(exc))
+            # 60s of absence means the renderer never adopted a tab, so one more
+            # create cannot duplicate a live session. Measured 2026-10-03: --focus
+            # waits for the UI to switch, times out, and creates nothing; the CLI
+            # still makes a visible tab without it. Ask for the tab, not the switch.
+            print('不在を確かめた。--focus なしで1回だけ作ります: ' + str(run),
+                  file=sys.stderr, flush=True)
+            try:
+                terminal = call(orca, 'terminal', 'create', '--worktree', selector,
+                                '--title', title,
+                                '--command', shlex.join(worker))['terminal']
+            except RuntimeError as retry:
+                raise RuntimeError('タブ作成を確認できない。再起動しない。結果の場所: '
+                                   + str(run) + '\n' + str(exc) + '\n' + str(retry))
     handle = terminal['handle']
     if not terminal.get('tabId'):
         raise RuntimeError('見えるタブへの接続を確認できない。再起動せず保持: ' + handle + ' / ' + str(run))
