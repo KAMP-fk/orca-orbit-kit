@@ -1,81 +1,89 @@
-# Melon / Kiwi / Potato
+# Named agents on Orca
 
-Orca 関連の開発で使う名前付き role。2026-10-02 の追加担当を再利用できるよう、skill・profile・起動コマンドを用意した。
-Tomato・Banana は既存の名前と人格を維持する。
+五役の責任・引き渡し先・判定の効力は [references/roles.md](references/roles.md)。
+今回の計画は [references/refactor-plan.md](references/refactor-plan.md)。
+役割名、workspace 名、provider、effort、skill の場所は `roles.json` が正本。
 
-| 名前 | 担当 | 実行の既定 |
+| 名前 | 責任 | 通常の実行 |
 |---|---|---|
-| Melon | レビュー基盤・証拠パケット・CI照合の実装改善 | gpt-6.1-sol / medium |
-| Kiwi | 観測の鮮度・状態履歴・引継ぎ基盤の実装改善 | gpt-6.1-sol / medium |
-| Potato | 実装に未関与の別担当として技術確認 | Claude Opus 5.5 / high、Read / Glob / Grep |
+| Tomato | 相談・判断材料・受け渡し | Codex gpt-6.1-sol / medium |
+| Banana | 承認済み開発の進行・実装・統合 | Codex gpt-6.1-sol / medium |
+| Kiwi | 観測・引き継ぎ基盤の実装 | Codex gpt-6.1-sol / medium |
+| Peach | In Review Issue の AC 判定 | 既存の evidence pipeline、Claude Opus 5.5 / high |
+| Potato | 固定差分の未関与技術確認 | Claude Opus 5.5 / high、Read / Glob / Grep |
 
-## 呼び出す
+Melon の既存定義は維持する。モデルの自動 fallback はしない。
+skill を適用しても今のチャットの model/effort・関与歴・権限は切り替わらない。
+concafe の正式な最終レビュー・判断は現行の別 Codex タスク経路を使う。
 
-Codex のチャットでは `$melon` / `$kiwi` / `$potato` を指定する。表示名は Melon / Kiwi / Potato。
-現在のセッションに新しい skill がまだ表示されない場合は、新しいチャットで読み込む。
-skill の適用は今のチャットに役割の手順を読み込む操作で、モデル・effort・sandbox や関与歴を切り替えない。
-別セッションと profile が必要なときは、以下の起動コマンドを使う。
+## 呼び出し
 
-ターミナルでは同名コマンドを使う。依頼を渡すと、役ごとの Orca 作業場所にタスク専用タブを新設する。
-2026-10-03 の Owner 指示により、1タスクにつき新しいセッションを起動し、結果を保存・回収してからそのタブを閉じる。
-常駐の待機セッションへ依頼を追加しない。次のタスクは別セッションで起動する。
+Codex のチャットでは `$tomato` / `$banana` / `$kiwi` / `$peach` / `$potato`。
+新しい skill がまだ表示されない場合は次のチャットで読み込む。
+人格と記憶の原本は brain に残す。定義の編集だけで日誌・窓口を更新しない。
 
-```sh
-melon --cwd /Users/kamp/orca 'レビュー基盤の取得失敗処理を改善して'
-kiwi --cwd /Users/kamp/.claude/skills/Tomato 'watch の状態履歴を調べて改善して'
-potato --cwd /Users/kamp/orca '指定した完成差分を独立に確認して'
-```
-
-複雑な技術作業は `--effort high`、今回の明示モデル指定は `--model <ID>` で渡す。
-自動 fallback はしない。profile の effort に加え CLI 引数でも指定する。
+ターミナルの依頼は UTF-8 ファイルで渡せる。内容を shell 展開せず、改行と引用を保持する。
 
 ```sh
-melon --dry-run '今回の依頼'
-kiwi --exec --cwd /path/to/workspace '今回の依頼'
-potato --orca --worktree path:/Users/kamp/orca --cwd /Users/kamp/orca '今回の技術確認'
+banana --cwd /path/to/project --prompt-file /path/to/request.md
+kiwi --cwd /Users/kamp/.claude/skills/Tomato --prompt-file /path/to/request.md
+potato --cwd /path/to/project --prompt-file /path/to/review.md
+peach --orca CAF-123 --pr owner/repo#123
 ```
 
-`--dry-run` は起動引数とタスク運用の設定を JSON で返し、セッションを作らない。
-通常の依頼、`--task`、旧 `--exec`、依頼付き `--orca` はすべて見えるタスク専用タブで実行する。
-Orca の作業場所は既定で Melon / Kiwi / Potato の名前付きカード。対象コードの cwd は `--cwd` で固定する。
-`--worktree path:<絶対パス>` を指定するとタブの場所もその登録済み checkout / folder に変更する。
-両方を渡した場合は path の一致を検証する。remote 環境を選んだ shell では起動しない。
-新しいタブを開いて表示し、Codex の実行出力、Potato のセッション開始・ツール実行・途中の応答を逐次表示する。
-Potato は終了時の session / modelUsage を検証する。途中の表示は最終レビュー承認ではない。
-`--json` は Potato の検証済み result metadata を返す。モデル・effort・権限を迂回する変更はしない。
+依頼付きの通常起動、`--task`、旧 `--exec`、依頼付き `--orca` は一件ごとの新しい見えるタブ。
+対話を続ける場合は明示して起動する。
 
-結果と進捗は `~/.local/share/named-team/tasks/<role>-<id>/` に保存する。
-`result.txt` / `error.txt` / `finished.json` を保存し、子プロセスとタブの終了を確認してから、そのタブだけを閉じる。
-起動コマンドは結果を呼び出し元へ返し、タブを閉じても結果は残る。
-タブ作成の応答がタイムアウトした場合は同じ一意のタブを照合し、再作成・再送しない。
-開始・終了・回収・close を確認できないときはタブと結果を保持し、未確認として返す。
+```sh
+tomato --interactive --orca --cwd /Users/kamp/brain
+banana --dry-run --cwd /path/to/project --prompt-file /path/to/request.md
+peach --dry-run CAF-123 --pr owner/repo#123
+```
 
-依頼なしの手動起動や明示的な `--interactive` は対話用。自動で閉じない。
-`bin/start-workspaces` はカードの作成・確認だけを担当し、待機用エージェントを起動しない。
+`--dry-run` は起動設定だけを返す。モデル/Orca セッション・外部取得は行わない。
+Codex の複雑な実装は `--effort high`、明示モデルは `--model <ID>`。
+Potato のモデルと effort は固定。Peach の既存 `--backend codex` は明示互換だけ。
+`--json` は Potato の検証済み result metadata を返す。
 
-Potato の独立性は実際の関与歴で判断し、名前だけを根拠に承認しない。
-汎用技術レビューは concafe の固定 SHA 最終署名 verdict を代替しない。正式な依頼は repo と最新 Owner 指示の別タスク・実モデル・effort・未関与性の条件に従う。
+`--cwd` は対象コード、`--worktree path:<絶対パス>` は登録済みのタブ配置先。
+名前付き launcher で両方を指定した場合は path の一致を検証する。
+Peach は packet で読むため checkout を実装用 cwd にせず、`--worktree` は配置先だけを指定する。
+Orca が返す完全な worktree ID と唯一の terminal handle で追跡する。remote 環境の shell からは起動しない。
+
+## タスクと回収
+
+一件ごとに新しいタブを表示し、途中の出力を流す。
+結果は `~/.local/share/named-team/tasks/<role>-<id>/` の `result.txt`、`error.txt`、`finished.json` に保存する。
+Peach の正式な packet/ledger/verdict は既存の保存先に残り、Orca task の結果はその回の出力を回収する。
+Potato は実応答の session/modelUsage を確認し、5.5 以外・複数モデル・不明なら BLOCKED。
+保存・回収・子プロセスの終了を確認してから、その回のタブだけを閉じる。
+次のタスクを待機セッションへ追加しない。対話セッションは自動で閉じない。
+
+タブ作成の応答がタイムアウトしたら一意の title で同じタブだけを照合し、再作成・再送しない。
+開始・保存・終了・close を確認できなければタブと結果を保持して未確認と返す。
+起動要求、タブ作成、モデル応答、完了、cleanup を別々の事実として扱う。
+rc=0 や指摘なしを独立 PASS・署名・Ready/merge と読まない。
 
 ## 配線と正本
 
 ```sh
 /Users/kamp/orca/agents/named-team/install.py
 /Users/kamp/orca/agents/named-team/install.py --check
+/Users/kamp/orca/agents/linear-inreview-reviewer/install.sh --check
+/Users/kamp/orca/agents/named-team/bin/start-workspaces --check
 ```
 
-正本はこのフォルダの `roles/<name>/skill/` と `roles/<name>/codex/profile.config.toml`。
-`~/.agents/skills/<name>`、`~/.codex/<name>.config.toml`、`~/.local/bin/<name>` の9リンクを作る。
-base config や既存 agent を変更しない。別のファイル/リンクがあれば全体の配線前に中断する。
+`install.py` は Tomato/Banana/Kiwi/Potato/Melon の command・skill・role profile を配線する。
+Tomato の skill 正本は独立 Git repo の `~/.claude/skills/Tomato`。
+Banana の正本は `roles/banana/skill`。従来の `~/.claude/skills/Banana` は互換リンク。
+Kiwi/Potato/Melon の正本も `roles/<name>`。Peach の配線と packet は既存 package が持つ。
+base config、trust、approval、sandbox 設定は変更しない。
+全対象を先に確認し、無関係のファイル/リンクがあれば配線前に中断する。
 `--uninstall` はこの package を指すリンクだけを外す。
 
-モデル実行を伴う実依頼、外部投稿、automation、repo 操作の許可は、現在のユーザー指示と対象契約から得る。
-この定義を新しい操作許可として扱わない。
-# Git 管理された作業場所
+`bin/start-workspaces` は六役のカードの準備・確認だけを行い、待機エージェントを起動しない。
+Orca executable は ORCA_CLI_COMMAND、dev session、Linux、macOS の順に現行ガイドどおり選択し、別 build へ fallback しない。
+操作を行う担当はその executable の `orca-cli`、監督付き連携のときだけ `orchestration` を読む。
 
-2026-10-03 の引継ぎで、`/Users/kamp/orca` のエージェント実装・共有オフラインテストと
-`/Users/kamp/.claude/skills/Tomato` の観測ソースを別々のローカル Git repository にした。
-runtime state / logs / packets / backups / secrets は除外する。方針は各 `VERSION-CONTROL.md`。
-実装依頼は、Melon が `--cwd /Users/kamp/orca`、Kiwi が
-`--cwd /Users/kamp/.claude/skills/Tomato` を使う。通常の Git 検査は維持する。
-タスク launcher を別の Codex sandbox 内から呼ぶと、Git 検査を通っても runtime 初期化の権限で
-停止する場合がある。起動 rc と実 model / effort を確認し、制約を迂回して起動しない。
+モデルを起動する実依頼、外部投稿、automation、repo 操作の許可は現在のユーザー指示と対象契約から得る。
+この定義は追加許可ではない。

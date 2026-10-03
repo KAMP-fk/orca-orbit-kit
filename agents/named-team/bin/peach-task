@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Run the existing evidence-backed Peach pipeline in one visible Orca task."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+from role_contract import orca_command, local_orca_only, NAMES
+from task_session import launch_task
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--orca', action='store_true')
+    parser.add_argument('--task', action='store_true')
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--worktree', help='タブを置く path:<絶対パス>。省略時は Peach のカード')
+    args, review_args = parser.parse_known_args()
+    if not review_args or any(value in ('--list', '--ledger', '--board', '--packet-only') for value in review_args):
+        parser.error('Orca タスクは一件の Issue 判定用。一覧・台帳・packet-only は通常の peach で実行する')
+    workspace = None
+    if args.worktree:
+        if not args.worktree.startswith('path:') or not Path(args.worktree[5:]).is_absolute():
+            parser.error('--worktree は path:<絶対パス> を指定する')
+        target = Path(args.worktree[5:]).expanduser().resolve()
+        if not target.is_dir():
+            parser.error('workspace が存在しない: ' + str(target))
+        workspace = 'path:' + str(target)
+    try:
+        local_orca_only()
+    except ValueError as exc:
+        parser.error(str(exc))
+    orca = orca_command()
+    if not args.dry_run and not shutil.which(orca):
+        parser.error('Orca CLI が見つからない: ' + orca)
+    reviewer = (ROOT.parent / 'linear-inreview-reviewer/bin/linear-inreview-reviewer').resolve()
+    # Pass review options literally, without Orca wrapper flags; the pipeline owns validation.
+    command = [str(reviewer), *review_args]
+    overrides = ('LINEAR_INREVIEW_ROOT', 'LINEAR_INREVIEW_HOME',
+                 'LINEAR_INREVIEW_PROTOCOL', 'LINEAR_INREVIEW_CLAUDE_SETTINGS')
+    environment = {key: str(Path(os.environ[key]).expanduser().resolve()) for key in overrides if key in os.environ}
+    environment['ORCA_CLI_COMMAND'] = orca
+    if args.dry_run:
+        print(json.dumps({'role': 'peach', 'mode': 'task', 'collector': 'stdout',
+                          'taskWorkspace': workspace or 'name:' + NAMES['peach'],
+                          'argv': command, 'orca': orca, 'visible': True,
+                          'closeAfterResult': True, 'startsSession': False}, ensure_ascii=False, indent=2))
+        return 0
+    return launch_task('peach', command, reviewer.parent.parent, environment, orca,
+                       workspace=workspace, collector='stdout')
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, ValueError, KeyError) as exc:
+        print('Peach のタスクを開始・回収できない: ' + str(exc), file=sys.stderr)
+        raise SystemExit(4)

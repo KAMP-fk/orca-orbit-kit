@@ -60,6 +60,24 @@ PREFLIGHT=1
 
 # Library location follows this executable, even when AGENT_ROOT is overridden.
 LIB_ROOT="$(cd "$(dirname "$_self")/../lib" && pwd)"
+# Keep the existing pipeline/legacy entry intact; opt into Orca's visible lifecycle.
+for peach_option in "$@"; do
+  case "$peach_option" in
+    --orca|--task|--dry-run)
+      exec python3 "$LIB_ROOT/../../named-team/bin/peach-task" "$@"
+      ;;
+  esac
+done
+
+if [ -n "${ORCA_CLI_COMMAND:-}" ]; then
+  ORCA_BIN="$ORCA_CLI_COMMAND"
+elif [ -n "${ORCA_DEV_REPO_ROOT:-}" ]; then
+  ORCA_BIN="orca-dev"
+elif [ "$(uname -s)" = Linux ]; then
+  ORCA_BIN="orca-ide"
+else
+  ORCA_BIN="orca"
+fi
 for module in report cli evidence linear github packet backend; do
   # shellcheck source=/dev/null
   source "$LIB_ROOT/$module.sh"
@@ -67,13 +85,13 @@ done
 
 parse_args "$@"
 case "$BACKEND" in codex|claude) ;; *) die "--backend must be 'codex' or 'claude'" ;; esac
-for bin in orca gh jq git python3; do
+for bin in "$ORCA_BIN" gh jq git python3; do
   command -v "$bin" >/dev/null 2>&1 || die "required command not found: $bin"
 done
 [ -r "$PROTOCOL" ] || die "protocol not readable: $PROTOCOL"
 
 if [ "$DO_LIST" = 1 ]; then
-  orca linear list-issues --state "$REQUIRED_STATE" --json \
+  "$ORCA_BIN" linear list-issues --state "$REQUIRED_STATE" --json \
     | jq -r --arg s "$REQUIRED_STATE" '
         .result.issues[] | select(.state.name == $s)
         | "\(.identifier)\t\(.team.key)\t\(.state.name)\t\(.title)"' \

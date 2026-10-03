@@ -5,7 +5,7 @@
 
 fetch_linear() {
   # --- 1. Linear: Issue 取得と status ゲート ------------------------------------
-  if ! evidence_capture linear.issue "$PACKET/linear/issue.json" true "$ISSUE" orca linear issue "$ISSUE" --full --json; then
+  if ! evidence_capture linear.issue "$PACKET/linear/issue.json" true "$ISSUE" "$ORCA_BIN" linear issue "$ISSUE" --full --json; then
     blocked "Linear Issue '${ISSUE}' を取得できなかった。診断: ${PACKET}/linear/issue.json.err"
   fi
   if ! jq -e '.ok == true and (.result.issue.identifier | type == "string")
@@ -41,7 +41,7 @@ fetch_linear() {
       evidence_invalid linear.related "$PACKET/linear/issue.json" true "$IDENT" "unsafe related Issue identifier"
       continue
     fi
-    if evidence_capture "linear.related.$rid" "$PACKET/linear/related/${rid}.json" true "$rid" orca linear issue "$rid" --full --json; then
+    if evidence_capture "linear.related.$rid" "$PACKET/linear/related/${rid}.json" true "$rid" "$ORCA_BIN" linear issue "$rid" --full --json; then
       jq -e --arg id "$rid" '.ok == true and .result.issue.identifier == $id
         and (.result.issue.title | type == "string") and (.result.issue.state.name | type == "string")
         and (.result.comments | type == "array") and (.result.children | type == "array")
@@ -81,7 +81,7 @@ fetch_linear() {
 
 recheck_linear() { # phase
   local phase="$1" path="$PACKET/linear/issue-$1.json" rid related_path
-  if ! evidence_capture "linear.issue.$1" "$path" true "$IDENT" orca linear issue "$IDENT" --full --json; then
+  if ! evidence_capture "linear.issue.$1" "$path" true "$IDENT" "$ORCA_BIN" linear issue "$IDENT" --full --json; then
     blocked "${IDENT} の最新状態を再取得できないため、判定を有効化しない。診断: ${path}.err"
   fi
   if ! python3 "$LIB_ROOT/evidence.py" same-issue "$PACKET/linear/issue.json" "$path"; then
@@ -93,7 +93,7 @@ recheck_linear() { # phase
     [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || continue
     mkdir -p "$PACKET/linear/rechecks/$phase"
     related_path="$PACKET/linear/rechecks/$phase/$rid.json"
-    if ! evidence_capture "linear.related.$rid.$phase" "$related_path" true "$rid" orca linear issue "$rid" --full --json; then
+    if ! evidence_capture "linear.related.$rid.$phase" "$related_path" true "$rid" "$ORCA_BIN" linear issue "$rid" --full --json; then
       blocked "関連 Issue ${rid} の最新状態を再取得できないため、判定を有効化しない。診断: ${related_path}.err"
     fi
     if ! python3 "$LIB_ROOT/evidence.py" same-issue "$PACKET/linear/related/$rid.json" "$related_path"; then

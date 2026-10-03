@@ -11,15 +11,16 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
 from task_session import launch_task, review_result
+from role_contract import LAUNCH_ROLES, ROLES, skill_root, orca_command, local_orca_only
 
 ROOT = Path(__file__).resolve().parent.parent
-EFFORT = {'melon': 'medium', 'kiwi': 'medium', 'potato': 'high'}
+EFFORT = {name: ROLES[name]['effort'] for name in LAUNCH_ROLES}
 REVIEW_MODEL = 'claude-opus-5-5'
 
 
 def main():
     alias = Path(sys.argv[0]).name.lower()
-    parser = argparse.ArgumentParser(description='Melon / Kiwi は Codex、Potato は Claude Opus 5.5 / high で起動')
+    parser = argparse.ArgumentParser(description='名前付き役割を一件ごとの Orca タスク、または明示した対話セッションで起動')
     if alias not in EFFORT:
         parser.add_argument('role', type=str.lower, choices=sorted(EFFORT))
     parser.add_argument('--cwd', help='対象 workspace（既定は現在の場所、または --worktree の path）')
@@ -34,8 +35,18 @@ def main():
     parser.add_argument('--worktree', help='Orca の対象 path:<絶対パス>（省略時は役ごとの作業場所）')
     parser.add_argument('--dry-run', action='store_true', help='起動引数を JSON で確認。セッションを起動しない')
     parser.add_argument('--json', action='store_true', help='Potato --exec の検証済み Claude result metadata を返す')
+    parser.add_argument('--prompt-file', type=Path, help='UTF-8 の依頼ファイルをそのまま渡す。位置引数の依頼とは併用不可')
     parser.add_argument('prompt', nargs='?', help='今回の依頼（空白を含む場合は引用符で囲む）')
     args = parser.parse_intermixed_args()
+    if args.prompt_file is not None:
+        if args.prompt is not None:
+            parser.error('--prompt-file と位置引数の依頼は併用しない')
+        try:
+            args.prompt = args.prompt_file.expanduser().read_text(encoding='utf-8')
+        except (OSError, UnicodeError) as exc:
+            parser.error('依頼ファイルを読めない: ' + str(exc))
+        if not args.prompt.strip():
+            parser.error('依頼ファイルが空')
     role = alias if alias in EFFORT else args.role
     task = args.task or args.batch or (args.prompt is not None and not args.interactive and not args.batch_worker)
     batch = task or args.batch_worker
@@ -64,7 +75,7 @@ def main():
         parser.error('タスク実行には今回の依頼が必要')
     if args.model is not None and (not args.model.strip() or args.model.startswith('-')):
         parser.error('--model はモデル ID を指定する')
-    skill = ROOT / 'roles' / role / 'skill' / 'SKILL.md'
+    skill = skill_root(role) / 'SKILL.md'
     config_home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))).expanduser().resolve()
     claude_home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser().resolve()
     if role == 'potato':
@@ -92,7 +103,8 @@ def main():
                    '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk',
                    '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
                    '--settings', str(settings), '--agents', json.dumps(definition, ensure_ascii=False),
-                   '--agent', 'potato', '--add-dir', str(skill.parent)]
+                   '--agent', 'potato', '--add-dir', str(skill.parent),
+                   '--add-dir', str(ROOT / 'references')]
         if batch:
             command += ['--print', '--output-format', 'json', '--permission-prompts', 'none']
         environment = {'CLAUDE_CODE_EFFORT_LEVEL': 'high'}
@@ -117,13 +129,12 @@ def main():
         prompt = 'あなたは ' + role.capitalize() + '。最初に ' + str(skill) + ' を読み、現在のユーザー指示と対象プロジェクトの契約を適用してください。\n\n今回の依頼:\n' + args.prompt
         command += ['--', prompt]
     if args.orca or task:
-        if os.environ.get('ORCA_ENVIRONMENT') or os.environ.get('ORCA_PAIRING_CODE'):
-            parser.error('この role はローカル配線。remote 環境指定のある shell からは起動しない')
-        orca = os.environ.get('ORCA_CLI_COMMAND') or ('orca-dev' if os.environ.get('ORCA_DEV_REPO_ROOT') else 'orca-ide' if sys.platform.startswith('linux') else 'orca')
-        orca_executable = shutil.which(orca)
-        if orca_executable:
-            orca = str(Path(orca_executable).absolute())
-        elif not args.dry_run:
+        try:
+            local_orca_only()
+        except ValueError as exc:
+            parser.error(str(exc))
+        orca = orca_command()
+        if not shutil.which(orca) and not args.dry_run:
             parser.error('Orca CLI が見つからない: ' + orca)
     if args.orca and not task:
         # Pin validated config and effort even when Orca starts a fresh shell.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Banana"
+  short_description: "承認済みの開発を実装・検証・PR と CI から完了まで進める担当"
+  default_prompt: "$banana として、指定した開発を受入条件の確認から実装・検証まで進めてください。"

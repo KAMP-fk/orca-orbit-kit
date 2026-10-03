@@ -13,7 +13,7 @@ WATCH = Path('/Users/kamp/.claude/skills/Tomato/bin/watch')
 SHA = 'a' * 40
 BASE_SHA = 'c' * 40
 MOCK = r'''#!/usr/bin/python3
-import json, os, re, sys
+import json, os, re, sys, shlex, subprocess
 from pathlib import Path
 name=Path(sys.argv[0]).name; a=sys.argv[1:]
 cfg=json.loads(Path(os.environ['FIXTURE']).read_text())
@@ -26,7 +26,15 @@ def out(value): print(json.dumps(value))
 def fail(key):
  if cfg.get(key): print('fixture unavailable',file=sys.stderr);sys.exit(cfg[key])
 if name=='orca':
- if a[:2]==['linear','issue']:
+ if a[:2]==['worktree','show']: out({'ok':True,'result':{'worktree':{'id':'fixture::/workspace'}}})
+ elif a[:2]==['terminal','create']:
+  command=a[a.index('--command')+1];run=Path(shlex.split(command)[-1])
+  Path(os.environ['NAMED_TEAM_TASK_DIR'],'latest').write_text(str(run))
+  subprocess.run(['/bin/sh','-c',command],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  out({'ok':True,'result':{'terminal':{'handle':'fixture_terminal','tabId':'fixture_tab'}}})
+ elif a[:2]==['terminal','wait']: out({'ok':True,'result':{'wait':{'satisfied':True}}})
+ elif a[:2]==['terminal','close']: out({'ok':True,'result':{}})
+ elif a[:2]==['linear','issue']:
   fail('linear_rc')
   count=sum(1 for line in Path(os.environ['CALL_LOG']).read_text().splitlines() if json.loads(line)[:4]==['orca','linear','issue',a[2]])
   issue_update=cfg.get('issue_update',{}) if a[2]=='CAF-999' and count >= cfg.get('issue_update_call',2) else {}
@@ -161,6 +169,32 @@ class OfflineCase(unittest.TestCase):
 
     def test_help_no_services(self):
         r=self.run_cli(REVIEWER,'--help');self.assertEqual(r.returncode,0);self.assertFalse(self.calls())
+
+    def test_orca_peach_task_runs_existing_evidence_pipeline_and_closes_once(self):
+        self.env['NAMED_TEAM_TASK_DIR'] = str(self.root / 'task-results')
+        r = self.run_cli(REVIEWER, '--orca', 'CAF-999', '--pr', 'test/repo#1')
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertEqual(r.stdout.count('Verdict: PASS'), 1)
+        calls = self.calls()
+        self.assertEqual(sum(c[:3] == ['orca', 'terminal', 'create'] for c in calls), 1)
+        self.assertEqual(sum(c[:3] == ['orca', 'terminal', 'close'] for c in calls), 1)
+        self.assertEqual([c[0] for c in calls if c[0] in ('codex', 'claude')], ['claude', 'claude'])
+        run = Path((self.root / 'task-results/latest').read_text())
+        self.assertTrue((run / 'closed.json').is_file())
+        packet = next((self.root / 'reviewer-state/packets/CAF-999').iterdir())
+        self.assertTrue(json.loads((packet / 'evidence.json').read_text())['complete'])
+        self.assertIn('Verdict: PASS', (packet / 'verdict.md').read_text())
+
+    def test_orca_peach_invalid_result_keeps_blocked_and_never_returns_draft_pass(self):
+        self.env['NAMED_TEAM_TASK_DIR'] = str(self.root / 'task-results')
+        self.config['report_sha'] = 'b' * 40
+        r = self.run_cli(REVIEWER, '--orca', 'CAF-999', '--pr', 'test/repo#1')
+        self.assertEqual(r.returncode, 3, r.stderr + r.stdout)
+        self.assertIn('Verdict: BLOCKED', r.stdout)
+        self.assertNotIn('Verdict: PASS', r.stdout)
+        run = Path((self.root / 'task-results/latest').read_text())
+        self.assertTrue((run / 'closed.json').is_file())
+        self.assertNotIn('Verdict: PASS', (run / 'result.txt').read_text())
 
     def test_bad_selectors_before_services(self):
         for args in (('--pr','../repo#1'),('--pr','test/repo#01'),('--run','test/repo:0'),('--run=',),('--backend',)):

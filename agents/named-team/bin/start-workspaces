@@ -7,15 +7,14 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+from role_contract import NAMES, orca_command, local_orca_only
+
 FOLDER = Path.home() / '.agents/skills'
-NAMES = {'melon': 'Melon｜レビュー基盤の開発',
-         'kiwi': 'Kiwi｜観測・引継ぎ基盤の開発',
-         'potato': 'Potato｜独立技術レビュー'}
-ORCA = '/usr/local/bin/orca'
 
 
 def call(*args):
-    result = subprocess.run([ORCA, *args, '--json'], text=True, capture_output=True, check=True)
+    result = subprocess.run([orca_command(), *args, '--json'], text=True, capture_output=True, check=True)
     data = json.loads(result.stdout)
     if data.get('ok') is not True:
         raise RuntimeError(result.stdout)
@@ -27,6 +26,7 @@ def main():
     parser.add_argument('role', nargs='?', choices=NAMES)
     parser.add_argument('--check', action='store_true', help='Read-only status; do not launch or repair')
     args = parser.parse_args()
+    local_orca_only()
     if not args.check:
         subprocess.run([sys.executable, str(ROOT / 'bin/setup')], check=True)
     repos = [r for r in call('repo', 'list')['repos'] if r['path'] == str(FOLDER)]
@@ -59,6 +59,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (subprocess.CalledProcessError, RuntimeError, KeyError) as exc:
+    except (subprocess.CalledProcessError, RuntimeError, KeyError, ValueError, OSError) as exc:
         print('Workspace startup blocked: ' + str(exc), file=sys.stderr)
         raise SystemExit(1)

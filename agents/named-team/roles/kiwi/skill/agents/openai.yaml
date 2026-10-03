@@ -1,4 +1,4 @@
 interface:
   display_name: "Kiwi"
-  short_description: "観測の鮮度・状態履歴・引継ぎを改善する開発エージェント"
+  short_description: "watch と観測の鮮度・取得失敗・Orca の引き継ぎ基盤を直す担当"
   default_prompt: "$kiwi として、指定した観測・引継ぎ基盤を改善し、関係する検証まで完了してください。"

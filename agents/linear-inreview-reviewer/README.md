@@ -203,3 +203,12 @@ shellcheck -S warning bin/linear-inreview-reviewer lib/*.sh
 追加テストは取得中・モデル実行中の Issue / PR / CI 更新、partial response、必須/optional CI、
 一般名テスト mapping、誤った判定、workflow run、Git 環境隔離、一時的な実 Git の diff を検証する。
 実 GitHub / Linear への到達と有料モデルの実動作は、これらのオフラインテストの確認範囲に含めない。
+# Orca の一件タスク
+
+`peach --orca <ISSUE-ID> [既存の review options]` は取得・判定・保存を新しい見えるタブで行い、
+結果回収とプロセス終了を確認してからそのタブだけを閉じる。
+`--worktree path:<絶対パス>` は配置先、`--dry-run` は取得もモデル起動もしない起動確認。
+通常の `peach` と旧名の pipeline、packet/ledger、モデル固定、read-only と証拠ゲートは同じ。
+一覧・台帳・`--packet-only` は通常の CLI で使う。
+共通の役割境界は [roles.md](../named-team/references/roles.md)。Issue がない差分の技術確認は Potato、
+実装・修正は Banana/Kiwi、証拠基盤の改善は Melon が担当する。

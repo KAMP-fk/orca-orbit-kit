@@ -9,10 +9,8 @@ import tempfile
 import threading
 import time
 import queue
+from role_contract import NAMES
 
-NAMES = {'melon': 'Melon｜レビュー基盤の開発',
-         'kiwi': 'Kiwi｜観測・引継ぎ基盤の開発',
-         'potato': 'Potato｜独立技術レビュー'}
 
 
 def call(orca, *args):
@@ -31,7 +29,7 @@ def save(path, value):
     temporary.replace(path)
 
 
-def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None):
+def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None, collector=None):
     # Fail before starting a model if the intended visible workspace is unavailable.
     selector = workspace or 'name:' + NAMES[role]
     target = call(orca, 'worktree', 'show', '--worktree', selector)['worktree']
@@ -40,7 +38,8 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     run = Path(tempfile.mkdtemp(prefix=role + '-', dir=state_root))
     save(run / 'request.json', {'role': role, 'command': command, 'cwd': str(cwd),
-                              'environment': environment})
+                              'environment': environment, 'worktreeId': target['id'],
+                              'collector': collector or ('claude' if role == 'potato' else 'codex')})
     worker = ['exec', sys.executable, str(Path(__file__).resolve()), '--worker', str(run)]
     # exec replaces the terminal shell so exit is an observable PTY condition.
     title = role.capitalize() + ' · ' + run.name
@@ -91,7 +90,7 @@ def launch_task(role, command, cwd, environment, orca, metadata=False, workspace
         save(run / 'closed.json', {'handle': handle, 'closed': True})
         if error:
             print(error, file=sys.stderr, end='')
-        if not finished['returncode']:
+        if not finished['returncode'] or collector == 'stdout':
             print(json.dumps(actual, ensure_ascii=False) if metadata else result, end='\n' if metadata else '')
         return finished['returncode']
     except (RuntimeError, OSError, ValueError, KeyError, KeyboardInterrupt) as exc:
@@ -159,18 +158,20 @@ def worker(run):
     env = os.environ.copy()
     env.update(request['environment'])
     role = request['role']
+    collector = request.get('collector', 'claude' if role == 'potato' else 'codex')
     error = ''
     result = ''
     rc = 3
     print(role.capitalize() + ' のタスクを開始 / 対象: ' + request['cwd'], flush=True)
     save(run / 'started.json', {'pid': os.getpid()})
-    if role == 'potato':
+    if collector == 'claude':
         command[command.index('--output-format') + 1] = 'stream-json'
         command.insert(command.index('--'), '--verbose')
-    else:
+    elif collector == 'codex':
         index = command.index('--')
         command[index:index] = ['--output-last-message', str(run / 'result.txt')]
     final = None
+    output = []
     try:
         with (run / 'progress.log').open('w') as log:
             child = subprocess.Popen(command, cwd=request['cwd'], env=env, stdin=subprocess.DEVNULL,
@@ -178,7 +179,7 @@ def worker(run):
             for line in lines_with_activity(child):
                 log.write(line)
                 log.flush()
-                if role == 'potato':
+                if collector == 'claude':
                     try:
                         event = json.loads(line)
                         if not isinstance(event, dict):
@@ -193,15 +194,24 @@ def worker(run):
                         print(line, end='', flush=True)
                 else:
                     print(line, end='', flush=True)
+                    if collector == 'stdout':
+                        output.append(line)
             rc = child.wait()
+        if collector == 'stdout':
+            # Peach validates its own report/model/evidence before returning it.
+            starts = [index for index, line in enumerate(output) if line.startswith('Issue: ')]
+            result = ''.join(output[starts[-1]:]) if starts else ''
+            if not rc and not result.strip():
+                raise ValueError('final Peach report is missing')
         if rc:
-            error = role.capitalize() + ': 実行失敗 rc=' + str(rc) + '。詳細: ' + str(run / 'progress.log') + '\n'
-        elif role == 'potato':
+            description = 'pipeline 終了' if collector == 'stdout' else '実行失敗'
+            error = role.capitalize() + ': ' + description + ' rc=' + str(rc) + '。詳細: ' + str(run / 'progress.log') + '\n'
+        elif collector == 'claude':
             final = review_result(final or {})
             save(run / 'metadata.json', final)
             result = final['result'] + '\n'
             print('実モデル検証済みの結果:\n' + result, end='', flush=True)
-        else:
+        elif collector == 'codex':
             result = (run / 'result.txt').read_text()
             if not result.strip():
                 raise ValueError('final Codex report is empty')
@@ -218,5 +228,5 @@ def worker(run):
 
 if __name__ == '__main__':
     if len(sys.argv) != 3 or sys.argv[1] != '--worker':
-        raise SystemExit('Use the melon / kiwi / potato task launcher.')
+        raise SystemExit('Use a named-team task launcher.')
     raise SystemExit(worker(Path(sys.argv[2])))

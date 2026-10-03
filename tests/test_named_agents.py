@@ -19,7 +19,7 @@ from unittest import mock
 PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
 LAUNCHER = PACKAGE / 'bin/agent'
 INSTALLER = PACKAGE / 'install.py'
-ROLES = ('melon', 'kiwi', 'potato')
+ROLES = ('tomato', 'banana', 'melon', 'kiwi', 'potato')
 
 
 class NamedAgentsTests(unittest.TestCase):
@@ -129,6 +129,8 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
                     self.assertEqual(definition['prompt'],
                                      (PACKAGE / 'roles/potato/skill/SKILL.md').read_text().split('\n---\n', 1)[-1].strip())
                     self.assertNotIn('--fallback-model', argv)
+                    read_dirs = [argv[i + 1] for i, value in enumerate(argv) if value == '--add-dir']
+                    self.assertIn(str(PACKAGE / 'references'), read_dirs)
                 else:
                     self.assertEqual(argv[argv.index('-p') + 1], role)
 
@@ -137,6 +139,29 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         self.assertEqual(preview['role'], 'potato')
         self.assertEqual(preview['cwd'], str(self.workspace))
         self.assertTrue(preview['argv'][-1].endswith('差分を確認'))
+
+    def test_prompt_file_preserves_literal_multiline_input_without_shell_expansion(self):
+        marker = self.root / 'must-not-be-created'
+        content = '引用 " ; $(touch ' + str(marker) + ') `touch ' + str(marker) + '`\n$HOME\n'
+        request = self.root / 'request with spaces.md'
+        request.write_text(content, encoding='utf-8')
+        result = self.launch('banana', '--interactive', '--prompt-file', str(request))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = json.loads(self.log.read_text())
+        self.assertTrue(log['argv'][-1].endswith('今回の依頼:\n' + content))
+        self.assertFalse(marker.exists())
+
+    def test_bad_prompt_file_stops_before_backend_or_orca(self):
+        request = self.root / 'empty.md'
+        request.write_text('  \n')
+        cases = [('--prompt-file', str(self.root / 'missing.md')),
+                 ('--prompt-file', str(request)),
+                 ('--prompt-file', str(request), 'second request')]
+        for args in cases:
+            with self.subTest(args=args):
+                result = self.launch('tomato', *args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(self.log.exists())
 
     def test_explicit_model_and_effort_are_preserved(self):
         preview = self.preview('melon', '--model', 'chosen-model', '--effort', 'high', '調査')
@@ -380,17 +405,19 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         nested = self.terminal_command(log['argv'])
         self.assertEqual(nested[2], str(self.bin / 'codex'))
 
-    def test_install_is_idempotent_and_owned_uninstall_cleans_all_nine_links(self):
+    def test_install_is_idempotent_and_owned_uninstall_cleans_all_fifteen_links(self):
         target = self.root / 'isolated-home'
         for _ in range(2):
             result = self.install(target)
             self.assertEqual(result.returncode, 0, result.stderr)
         result = self.install(target, '--check')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(result.stdout.splitlines()), 9)
+        self.assertEqual(len(result.stdout.splitlines()), 15)
         for role in ROLES:
             self.assertEqual((target / '.local/bin' / role).resolve(), LAUNCHER)
-            self.assertEqual((target / '.agents/skills' / role).resolve(), PACKAGE / 'roles' / role / 'skill')
+            self.assertEqual((target / '.agents/skills' / role).resolve(),
+                             Path('/Users/kamp/.claude/skills/Tomato') if role == 'tomato'
+                             else PACKAGE / 'roles' / role / 'skill')
             if role == 'potato':
                 self.assertEqual((target / '.claude/agents/potato.md').resolve(), PACKAGE / 'roles/potato/claude/agent.md')
                 self.assertFalse(os.path.lexists(target / '.codex/potato.config.toml'))

@@ -17,6 +17,9 @@ ${REVIEWER_NAME} — Linear "In Review" Issue 専用レビュアー（判定の�
       その Issue をレビューし、PASS / CHANGES_REQUIRED / BLOCKED を出す
 
 Options:
+  --orca / --task          一件を新しい見える Orca タブで実行。保存・回収・終了後にそのタブだけ閉じる
+  --worktree path:<ABS>    --orca 用のタブ配置先。省略時は Peach のカード
+  --dry-run               Orca タスクの起動内容を確認。サービス取得もモデル起動もしない
   --backend codex|claude   実行バックエンド（既定: claude）
                              codex  = ${CODEX_MODEL} / effort ${CODEX_EFFORT}
                                       OS サンドボックスで read-only + ネットワーク遮断（強制）

@@ -127,6 +127,12 @@ TASK_EOF
     claude_readonly_args
     CLAUDE_ARGS+=(--agents "$CLAUDE_AGENT_JSON" --agent "$REVIEWER_NAME"
                   --add-dir "$PACKET" --add-dir "$(dirname "$PROTOCOL")")
+    # The shared role contract is trusted source material outside the packet.
+    # Keep standalone Peach installations usable when named-team is absent.
+    ROLE_CONTRACT_DIR="$(dirname "$LIB_ROOT")/../named-team/references"
+    if [ -d "$ROLE_CONTRACT_DIR" ]; then
+      CLAUDE_ARGS+=(--add-dir "$ROLE_CONTRACT_DIR")
+    fi
   else
     WORKDIR="${PRIMARY_SRC:-$PACKET}"
   fi

@@ -10,6 +10,13 @@ version only the affected engineering sources, using two local repositories.
   modules, references, and new offline tests. This is the real source directory;
   no copied source or symlink deployment is introduced.
 
+For the 2026-10-03 named-agent refactor, Banana's skill, references and read-only
+context helper moved into `agents/named-team/roles/banana/skill`. The former
+`~/.claude/skills/Banana` is a compatibility symlink to that source. Tomato keeps
+its separate repository; the named-team installer links to it without importing
+persona, brain or observation runtime state. New role profiles remain inside
+`agents/named-team`; they do not replace the base Codex configuration.
+
 This boundary lets Melon and Kiwi use their normal launchers from actual Git
 repositories and makes edits reversible. No Git-check bypass or trust change is
 needed. The wider Orca runtime, nested repositories/workspaces, CI-runner operation,

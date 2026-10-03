@@ -37,7 +37,7 @@ if [ "${#EXPLICIT_PRS[@]}" -eq 0 ]; then
   # 4c. Orca 登録リポジトリを横断して、identifier / branch 名で探す
   IDENT_LC="$(printf '%s' "$IDENT" | tr 'A-Z' 'a-z')"
   BRANCH_LC="$(printf '%s' "$BRANCHNAME" | tr 'A-Z' 'a-z')"
-  if ! evidence_capture github.repo-scan "$PACKET/github/repositories.json" true "$IDENT" orca repo list --json; then
+  if ! evidence_capture github.repo-scan "$PACKET/github/repositories.json" true "$IDENT" "$ORCA_BIN" repo list --json; then
     blocked "Orca 登録 repository の取得に失敗した。候補無しとは扱わない。"
   fi
   jq -e '.result.repos | type == "array"' "$PACKET/github/repositories.json" >/dev/null \
@@ -165,7 +165,7 @@ fetch_github() {
     HEAD_SHA="$(jq -r '.headRefOid' "$D/pr.json")"; BASE_SHA="$(jq -r '.baseRefOid' "$D/pr.json")"
     SCOPE="${SLUG}#${N} base=${BASE_SHA} head=${HEAD_SHA}"
     LOCAL_PATH=""
-    if evidence_capture "${SLUG}#${N}.local-repos" "$D/local-repos.json" false "$SLUG" orca repo list --json; then
+    if evidence_capture "${SLUG}#${N}.local-repos" "$D/local-repos.json" false "$SLUG" "$ORCA_BIN" repo list --json; then
       LOCAL_PATH="$(jq -r --arg key "github.com/$SLUG" '.result.repos[]? | select(.gitRemoteIdentity.canonicalKey == $key) | .path' "$D/local-repos.json" | head -1)"
     fi
     SRC="$D/src"

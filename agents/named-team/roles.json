@@ -1,0 +1,8 @@
+{
+  "tomato": {"workspace": "Tomato｜相談・受け渡し", "backend": "codex", "effort": "medium", "skill": "~/.claude/skills/Tomato"},
+  "banana": {"workspace": "Banana｜開発の進行・実装", "backend": "codex", "effort": "medium", "skill": "roles/banana/skill"},
+  "kiwi": {"workspace": "Kiwi｜観測・引継ぎ基盤の開発", "backend": "codex", "effort": "medium", "skill": "roles/kiwi/skill"},
+  "peach": {"workspace": "Peach｜Issue の受入判定", "backend": "reviewer", "effort": "high", "skill": "../linear-inreview-reviewer/skill"},
+  "potato": {"workspace": "Potato｜独立技術レビュー", "backend": "claude", "effort": "high", "skill": "roles/potato/skill"},
+  "melon": {"workspace": "Melon｜レビュー基盤の開発", "backend": "codex", "effort": "medium", "skill": "roles/melon/skill"}
+}

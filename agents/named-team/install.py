@@ -6,7 +6,10 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parent
-ROLES = ('melon', 'kiwi', 'potato')
+sys.path.insert(0, str(ROOT / 'lib'))
+from role_contract import LAUNCH_ROLES, skill_root
+
+ROLES = LAUNCH_ROLES
 
 
 def main():
@@ -23,7 +26,7 @@ def main():
     links = []
     for role in ROLES:
         links += [(target_home / '.local/bin' / role, ROOT / 'bin/agent'),
-                  (target_home / '.agents/skills' / role, ROOT / 'roles' / role / 'skill')]
+                  (target_home / '.agents/skills' / role, skill_root(role))]
         if role == 'potato':
             links.append((claude_home / 'agents/potato.md', ROOT / 'roles/potato/claude/agent.md'))
         else:

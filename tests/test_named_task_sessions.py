@@ -92,7 +92,7 @@ class TaskSessionTests(unittest.TestCase):
         return Path((self.state / 'latest').read_text())
 
     def test_default_requests_show_progress_save_report_and_close_only_the_new_tab(self):
-        for role in ('melon', 'kiwi', 'potato'):
+        for role in ('tomato', 'banana', 'melon', 'kiwi', 'potato'):
             with self.subTest(role=role):
                 result = self.launch(role, 'task request')
                 self.assertEqual(result.returncode, 0, result.stderr)

@@ -11,4 +11,4 @@ subprocess.run([sys.executable, str(root / 'install.py'), '--check'], check=True
 for executable in ('codex', 'claude', 'orca'):
     if not shutil.which(executable):
         raise SystemExit('Missing executable: ' + executable)
-print('Setup ready: Melon / Kiwi = Codex; Potato = Claude Opus 5.5 / high')
+print('Setup ready: Tomato / Banana / Kiwi / Melon = Codex; Potato = Claude Opus 5.5 / high; Peach uses its evidence pipeline')
