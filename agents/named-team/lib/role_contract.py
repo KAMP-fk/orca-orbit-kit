@@ -6,7 +6,36 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def validate_roles(roles):
+    """Reject broken routing before any caller resolves a home or starts a model."""
+    roots = set()
+    for name, role in roles.items():
+        home = role.get('homeRole')
+        if home not in roles or roles[home].get('activation') != 'home':
+            raise ValueError('role の受付が常設ホームではない: ' + name)
+        if role.get('activation') not in ('home', 'on-demand'):
+            raise ValueError('role の起動条件が不明: ' + name)
+        if role['activation'] == 'home':
+            root = str(Path(role['workspaceRoot']).expanduser().resolve())
+            if home != name or root in roots:
+                raise ValueError('常設ホームの自己参照・一意性が不正: ' + name)
+            roots.add(root)
+        elif role.get('tabAutostart'):
+            raise ValueError('必要時の専門担当を自動待機起動しない: ' + name)
+        seen = {name}
+        parent = role.get('parentRole')
+        while parent is not None:
+            if parent not in roles or parent in seen:
+                raise ValueError('role の進行担当が不明または循環している: ' + name)
+            seen.add(parent)
+            parent = roles[parent].get('parentRole')
+    return roles
+
+
 ROLES = json.loads((ROOT / 'roles.json').read_text(encoding='utf-8'))
+validate_roles(ROLES)
 NAMES = {name: role['workspace'] for name, role in ROLES.items()}
 LAUNCH_ROLES = tuple(name for name, role in ROLES.items() if role['backend'] != 'reviewer')
 HOME_ROLES = tuple(name for name, role in ROLES.items() if role['activation'] == 'home')

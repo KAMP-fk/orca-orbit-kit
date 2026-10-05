@@ -3,9 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
-from role_contract import LAUNCH_ROLES, ROLES, skill_root
-
-ROOT = Path(__file__).resolve().parent.parent
+from role_contract import ROOT, LAUNCH_ROLES, ROLES, skill_root
 EFFORT = {name: ROLES[name]['effort'] for name in LAUNCH_ROLES}
 REVIEW_MODEL = 'claude-opus-5-5'
 
@@ -13,6 +11,8 @@ REVIEW_MODEL = 'claude-opus-5-5'
 def launch_spec(role, cwd, prompt=None, model=None, effort=None, batch=False, dry_run=False, read_only=False):
     if role not in EFFORT:
         raise ValueError('この入口で実行する role ではない: ' + role)
+    if effort is not None and effort not in ('low', 'medium', 'high', 'xhigh', 'max'):
+        raise ValueError('--effort は low / medium / high / xhigh / max を指定する')
     if model is not None and (not model.strip() or model.startswith('-')):
         raise ValueError('--model はモデル ID を指定する')
     if role == 'potato' and ((model and model != REVIEW_MODEL) or (effort and effort != 'high')):
@@ -37,7 +37,7 @@ def launch_spec(role, cwd, prompt=None, model=None, effort=None, batch=False, dr
         policy = json.loads(settings.read_text())
         if policy.get('model') != REVIEW_MODEL or policy.get('effortLevel') != 'high' or policy.get('disableAllHooks') is not True or policy.get('permissions', {}).get('disableBypassPermissionsMode') != 'disable':
             raise ValueError('Potato の model / effort / permissions 設定が一致しない')
-        from review_routing import is_concafe_path
+        from project_identity import is_concafe_path
         if is_concafe_path(cwd):
             raise ValueError('concafe のレビューは Owner 指示の未関与の別 Codex タスク経路を使う。汎用 Claude は起動しない')
         definition = {'potato': {'description': 'Independent technical reviewer',

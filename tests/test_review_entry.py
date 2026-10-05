@@ -11,6 +11,7 @@ from unittest import mock
 PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
 sys.path.insert(0, str(PACKAGE / 'lib'))
 import review_routing
+import project_identity
 import role_launch
 
 
@@ -27,6 +28,7 @@ class ReviewEntryTests(unittest.TestCase):
         (self.repo / 'source.txt').write_text('fixture\n')
         self.git('add', 'source.txt')
         self.git('commit', '-qm', 'Fixture')
+        self.git('remote', 'add', 'origin', 'git@github.com:fixture/repo.git')
         self.sha = self.git('rev-parse', 'HEAD').strip()
         self.prompt = self.root / 'review request.md'
         self.prompt.write_text('Review the fixed change for regressions.\n')
@@ -55,6 +57,8 @@ class ReviewEntryTests(unittest.TestCase):
         self.assertNotIn(str(PACKAGE / 'bin/peach-task'), technical['argv'])
         self.assertIn('read', technical['argv'])
         self.assertTrue(acceptance['requiresUninvolvedTask'])
+        self.assertEqual(acceptance['argv'][-2:], ['--expected-repo', 'fixture/repo'])
+        self.assertEqual(technical['executorRole'], 'potato')
         self.assertFalse(technical['isFinalVerdict'])
 
     def test_acceptance_cannot_implicitly_become_fixed_pr_final_review(self):
@@ -78,27 +82,29 @@ class ReviewEntryTests(unittest.TestCase):
         self.assertIsNone(plan['argv'])
         self.assertFalse(plan['startsSession'])
         self.assertFalse(plan['executableHere'])
+        self.assertFalse(plan['isFinalVerdict'])
+        self.assertTrue(plan['requiresFinalVerdict'])
         self.assertEqual(self.cli(*args, '--dry-run').returncode, 0)
 
     def test_remote_identity_keeps_concafe_on_owner_codex_policy_without_contract_file(self):
-        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         for kind in ('acceptance', 'technical', 'final'):
-            plan = review_routing.review_plan(kind, self.repo, issue='CAF-123',
-                                              prompt_file=self.prompt, sha=self.sha)
+            options = {'issue': 'CAF-123'} if kind == 'acceptance' else {'prompt_file': self.prompt} if kind == 'technical' else {'sha': self.sha}
+            plan = review_routing.review_plan(kind, self.repo, **options)
             self.assertEqual(plan['route'], 'separate-project-task')
             self.assertEqual(plan['requiredModel'], 'gpt-6-astra' if kind == 'final' else 'gpt-6.1-sol')
-            self.assertEqual(plan['requiredEffort'], 'high')
+            self.assertEqual(plan['requiredEffort'], 'medium' if kind == 'acceptance' else 'high')
             self.assertFalse(plan['executableHere'])
             self.assertIsNone(plan['argv'])
 
     def test_concafe_worktree_is_recognized_even_if_renamed(self):
-        self.git('remote', 'add', 'origin', 'https://github.com/KAMP-fk/concafe-techo.git')
+        self.git('remote', 'set-url', 'origin', 'https://github.com/KAMP-fk/concafe-techo.git')
         worktree = self.root / 'unrelated-task-name'
         self.git('worktree', 'add', '--detach', str(worktree), self.sha)
         self.assertTrue(review_routing.is_concafe_path(worktree))
 
     def test_direct_potato_cannot_bypass_concafe_route_by_omitting_repo_option(self):
-        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         config = self.root / 'claude config'
         (config / 'agents').mkdir(parents=True)
         (config / 'agents/potato.md').symlink_to(PACKAGE / 'roles/potato/claude/agent.md')
@@ -107,7 +113,7 @@ class ReviewEntryTests(unittest.TestCase):
                 role_launch.launch_spec('potato', self.repo, 'Review', batch=True, dry_run=True)
 
     def test_dry_run_technical_has_no_orca_model_or_task_state(self):
-        with mock.patch.object(review_routing, 'git_process', wraps=review_routing.git_process) as git:
+        with mock.patch.object(project_identity, 'git_process', wraps=project_identity.git_process) as git:
             plan = review_routing.review_plan('technical', self.repo, prompt_file=self.prompt)
         self.assertFalse(plan['startsSession'])
         self.assertTrue(all(call.args[0].endswith('/git') for call in git.call_args_list))
@@ -115,6 +121,34 @@ class ReviewEntryTests(unittest.TestCase):
                           '--prompt-file', str(self.prompt), '--dry-run')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['route'], 'potato')
+
+    def test_unused_options_are_rejected_instead_of_losing_the_request(self):
+        for kind, options in [('technical', {'issue': 'CAF-123', 'prompt_file': self.prompt}),
+                              ('technical', {'pr': 'fixture/repo#1', 'prompt_file': self.prompt}),
+                              ('acceptance', {'issue': 'CAF-123', 'prompt_file': self.prompt}),
+                              ('final', {'sha': self.sha, 'pr': 'other/repo#1'})]:
+            with self.subTest(kind=kind, options=options), self.assertRaises(ValueError):
+                review_routing.review_plan(kind, self.repo, **options)
+
+    def test_handoff_keeps_the_actual_request_and_detects_dirty_scope(self):
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        (self.repo / 'source.txt').write_text('dirty change\n')
+        plan = review_routing.review_plan('technical', self.repo, prompt_file=self.prompt)
+        self.assertEqual(plan['request']['text'], self.prompt.read_text())
+        self.assertEqual(len(plan['request']['sha256']), 64)
+        self.assertEqual(plan['request']['path'], str(self.prompt))
+        self.assertTrue(plan['checkoutDirty'])
+
+    def test_acceptance_without_verified_repository_identity_blocks(self):
+        self.git('remote', 'remove', 'origin')
+        with self.assertRaisesRegex(ValueError, 'origin'):
+            review_routing.review_plan('acceptance', self.repo, issue='CAF-123')
+
+    def test_unreadable_git_identity_does_not_allow_generic_claude(self):
+        failed = subprocess.CompletedProcess([], 128, '', 'fatal: permission denied')
+        with mock.patch.object(project_identity, 'git_process', return_value=failed):
+            with self.assertRaisesRegex(ValueError, '識別'):
+                project_identity.is_concafe_path(self.repo)
 
 
 if __name__ == '__main__':

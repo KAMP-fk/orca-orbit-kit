@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--orca', action='store_true')
     parser.add_argument('--task', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--worktree', help='タブを置く path:<絶対パス>。省略時は Peach のカード')
+    parser.add_argument('--worktree', help='タブを置く path:<絶対パス>。省略時は既存 Review のカード')
     args, review_args = parser.parse_known_args()
     if not review_args or any(value in ('--list', '--ledger', '--board', '--packet-only') for value in review_args):
         parser.error('Orca タスクは一件の Issue 判定用。一覧・台帳・packet-only は通常の peach で実行する')

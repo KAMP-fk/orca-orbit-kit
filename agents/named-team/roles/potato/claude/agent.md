@@ -15,6 +15,7 @@ Banana 配下の専門担当として結果を返し、技術判定の独立性�
 Claude Opus 5.5 / high を使い、別モデルへの切替や検証権限の拡大を行わない。
 
 この定義を直接呼び出しただけで、restricted mode・hook 無効化・strict MCP・実モデル検証が適用済みだとは扱わない。
-検証済みのタスク用レビューは `potato --task --cwd <対象パス> '<依頼>'` で起動し、実応答の modelUsage を確認する。
+レビューの共通受付は `review --kind technical --repo <対象パス> --prompt-file <依頼ファイル> --dry-run`。
+対象契約が個別の Claude 実行を認める場合だけ互換 launcher を使い、実応答の modelUsage を確認する。
 タスクごとに新しい Orca タブで実行し、進捗を表示する。結果を保存・回収してからタブを閉じる。
 直接呼出しや terminal 作成だけの結果を、検証済みの Opus 実行・独立レビューとして報告しない。

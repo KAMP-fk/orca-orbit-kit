@@ -6,6 +6,10 @@
 
 ## レビューを渡す
 
+共通受付 `review` で acceptance / technical / final を選ぶ。
+具体的な引数と引渡し待ちの扱いは [README](../../../../README.md#レビューの受付)、
+現在のモデル・独立性・役割は [team-topology.md](../../../../references/team-topology.md) を参照する。
+
 実装・修正に未関与の担当に repo / PR / 固定 full head SHA と必要な一次資料を渡す。
 承認済み AC、該当契約、実 diff、関連実装、検査・現在 SHA の CI、未解決コメントを読める状態にする。
 実装者の説明だけを証拠にしない。情報不足は不足のまま示す。

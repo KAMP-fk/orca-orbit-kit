@@ -19,7 +19,7 @@ def main():
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--uninstall', action='store_true')
     parser.add_argument('--home', type=Path, default=Path.home(), help='対象 user home。通常は省略')
-    parser.add_argument('--tab-autostart', action='store_true', help='Orca の担当ホームの新規 zsh タブで対話エージェントを起動')
+    parser.add_argument('--tab-autostart', action='store_true', help='新規 zsh タブで Tomato/Banana の対話、Review のモデル無し受付を開始')
     args = parser.parse_args()
     target_home = args.home.expanduser().resolve()
     # Custom home is useful for an isolated installation check; the caller's env is untouched.

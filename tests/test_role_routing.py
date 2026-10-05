@@ -1,5 +1,6 @@
 """Orca role routing and Peach task checks; no hosted/model calls."""
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -19,6 +20,19 @@ import task_session
 
 
 class RoutingTests(unittest.TestCase):
+    def test_invalid_routing_blocks_before_workspace_resolution_or_launch(self):
+        cases = [('missing-home', lambda roles: roles['kiwi'].update(homeRole='missing')),
+                 ('specialist-home', lambda roles: roles['kiwi'].update(homeRole='melon')),
+                 ('idle-specialist', lambda roles: roles['kiwi'].update(tabAutostart=True)),
+                 ('coordinator-cycle', lambda roles: roles['banana'].update(parentRole='kiwi')),
+                 ('duplicate-home', lambda roles: roles['banana'].update(workspaceRoot=roles['tomato']['workspaceRoot']))]
+        for name, mutate in cases:
+            with self.subTest(name=name):
+                roles = copy.deepcopy(role_contract.ROLES)
+                mutate(roles)
+                with self.assertRaises(ValueError):
+                    role_contract.validate_roles(roles)
+
     def test_selected_orca_build_is_never_replaced_when_missing(self):
         cases = [({'ORCA_CLI_COMMAND': '/missing/custom-orca'}, 'linux', '/missing/custom-orca'),
                  ({'ORCA_DEV_REPO_ROOT': '/fixture/dev'}, 'darwin', 'orca-dev'),

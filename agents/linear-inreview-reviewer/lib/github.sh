@@ -49,6 +49,9 @@ if [ "${#EXPLICIT_PRS[@]}" -eq 0 ]; then
     | sed 's#^github\.com/##' | sort -u > "$PACKET/github/.repos"
   while IFS= read -r slug; do
     [ -n "$slug" ] || continue
+    if [ -n "${EXPECTED_REPO:-}" ] && [ "$(printf '%s' "$slug" | tr 'A-Z' 'a-z')" != "$(printf '%s' "$EXPECTED_REPO" | tr 'A-Z' 'a-z')" ]; then
+      continue
+    fi
     SCAN_FILE="$PACKET/github/scan-${slug//\//-}.json"
     if ! evidence_capture "github.scan.$slug" "$SCAN_FILE" true "$slug" gh pr list --repo "$slug" --state all --limit 200 \
         --json number,headRefName,title,body,url; then continue; fi
@@ -78,6 +81,10 @@ jq -s 'group_by(.owner + "/" + .repo + "#" + (.number|tostring))
 rm -f "$PACKET/github/.cand.raw"
 
 N_CAND="$(jq 'length' "$CAND")"
+if [ -n "${EXPECTED_REPO:-}" ] && ! jq -e --arg repo "$EXPECTED_REPO" \
+  'all(.[]; ((.owner + "/" + .repo) | ascii_downcase) == ($repo | ascii_downcase))' "$CAND" >/dev/null; then
+  blocked "PR 候補と Review 受付の対象 repository が一致しない。別 repo の取得・モデル起動を行わない。"
+fi
 if [ "$N_CAND" -eq 0 ]; then
   blocked "${IDENT} から対象 PR を特定できなかった。Linear の本文・コメント・添付に GitHub PR の URL が無く、Orca 登録リポジトリ（$(tr '\n' ' ' < "$PACKET/github/.repos" 2>/dev/null))の PR にも identifier '${IDENT}' / branch '${BRANCHNAME}' との対応が見つからない。推測で進めない。対象 PR が分かっているなら --pr owner/repo#N で明示して再実行する。"
 fi

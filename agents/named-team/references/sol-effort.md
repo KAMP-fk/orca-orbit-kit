@@ -1,10 +1,6 @@
-> 2026-10-05 更新: 現行の常設3窓口・必要時の専門担当・この会話の Owner 指示は
-> [team-topology.md](team-topology.md) を優先する。以下の旧編成・起動・レビュー割当の記録は、この依頼の現在の割当を上書きしない。
-
 # Sol 6.1 の effort 選択
 
-2026-10-03 JST の Owner 指示。Codex `gpt-6.1-sol` の通常設定は `medium`。
-役の名前ではなく、今回の仕事の規模・曖昧さ・考慮する要素・失敗コストで選ぶ。
+Owner 指示の用途別基準。通常は `medium`。役名ではなく今回の仕事で選ぶ。
 
 | Effort | 向いている用途 | 具体例 |
 |---|---|---|
@@ -16,21 +12,18 @@
 
 ## 起動への適用
 
-- 依頼を起動する担当が上の表で選び、通常は `medium`、異なる場合は `--effort` で明示する。
-  情報抽出なら `low`、複数サービス横断の調査なら `xhigh` のように、その依頼の内容で選ぶ。
-- 役の通常 profile は `gpt-6.1-sol` / `medium`。この運用の標準段階は Low〜Max とする。
-- 自動検知からの現物確認・既存担当・次の対応の整理は `medium`。
-  初回基準保存・差分比較・無変化の観測はモデルを起動しない。
-- 起動要求と実効 model / effort を確認する。スキル読込や設定ファイルの変更だけで、
-  実行中セッションの effort が変更されたとは扱わない。
-- この表は Sol 6.1 内の effort 選択。対象契約で指定された別モデル・別タスク・独立性・
-  CI・署名・人間ゲートも適用する。concafe-techo の CAF-279 による最終独立 verdict と
-  上位判断のモデル指定は保持し、Sol `max` の最終検証を署名 verdict の代わりにしない。
+`--effort` を明示した依頼だけ設定を変える。新規依頼の requested/effective を照合し、
+設定ファイルの変更を実行中セッションの変更と扱わない。
+無変化の監視・初回基準保存・差分比較ではモデルを起動しない。
 
 ```sh
-banana --effort low --cwd /absolute/path/to/repo --prompt-file /absolute/path/to/request.md --dry-run
-kiwi --effort xhigh --cwd /absolute/path/to/repo --prompt-file /absolute/path/to/request.md --dry-run
-melon --effort max --cwd /absolute/path/to/repo --prompt-file /absolute/path/to/request.md --dry-run
+banana --repo /absolute/checkout --effort low --prompt-file /absolute/request.md --dry-run
+kiwi --repo /absolute/checkout --effort xhigh --from-role banana --prompt-file /absolute/request.md --dry-run
+melon --repo /absolute/checkout --effort max --from-role banana --prompt-file /absolute/request.md --dry-run
 ```
 
-`--dry-run` は設定確認のみ。実行するときは依頼と権限を確認し、同じ指定から `--dry-run` を外す。
+通常の Sol 設定、プロジェクト固有の最終判定・上位判断モデルは
+[team-topology.md](team-topology.md) の Owner 指示と対象の現行契約に従う。
+この表の `max` を最終署名 verdict や上位判断の代わりにしない。
+汎用 Potato の個別依頼は別 backend の互換経路で、Sol effort 表の対象ではない。
+[整理前の説明](history/sol-effort-before-20261005.md) は履歴として保存する。

@@ -70,17 +70,20 @@ class RelayCase(unittest.TestCase):
                         PATH=str(self.bin) + os.pathsep + os.environ['PATH'],
                         CODEX_BIN=str(self.bin / 'codex'), RELAY_FIXTURE_ROOT=str(self.root))
         self.record = self.root / 'record.md'
-        self.record.write_text('Verdict: PASS\nhead SHA: ' + SHA + '\n')
+        self.verdict = self.root / 'verdict.md'
+        self.verdict.write_text('Verdict: PASS\nhead SHA: ' + SHA + '\nReviewer: uninvolved\n')
+        self.record.write_text(self.verdict.read_text())
         self.config = {}
 
     def run_relay(self, *args, record=None):
         (self.root / 'config.json').write_text(json.dumps(self.config))
         return subprocess.run([str(RELAY), '999', str(record or self.record),
-                               '--repo', 'fixture/repo', *args], env=self.env,
+                               '--repo', 'fixture/repo', '--verdict', str(self.verdict), *args], env=self.env,
                               text=True, capture_output=True)
 
     def calls(self):
-        return [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
+        log = self.root / 'calls.jsonl'
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
     def posts(self):
         return [c for c in self.calls() if c[:4] == ['gh', 'api', '--method', 'POST']]
@@ -190,6 +193,23 @@ class RelayCase(unittest.TestCase):
                 self.assertEqual(self.posts(), [])
                 self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
                 self.assertEqual(self.audit(), '')
+
+    def test_verdict_is_required_before_model_or_service_calls(self):
+        (self.root / 'config.json').write_text('{}')
+        result = subprocess.run([str(RELAY), '999', str(self.record), '--repo', 'fixture/repo'],
+                                env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('--verdict が無い', result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_summarized_record_cannot_drop_qualifications_from_verdict(self):
+        self.verdict.write_text(self.verdict.read_text() + 'Unresolved Medium: fixture qualification\n')
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('判定の逐語を含んでいない', result.stderr)
+        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+        self.assertEqual(self.posts(), [])
+        self.assertEqual(self.audit(), '')
 
     def test_native_ps_is_best_effort_with_isolated_post(self):
         self.config['native_ps'] = True

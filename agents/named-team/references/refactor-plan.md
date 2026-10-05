@@ -1,3 +1,6 @@
+> 過去の実施計画・検証記録。現在の契約は [team-topology.md](team-topology.md)、
+> 今回の整合性整理は [consistency-refactor.md](consistency-refactor.md) を参照する。
+
 # Agent refactor — 2026-10-03 JST
 
 依頼: Tomato / Banana / Kiwi / Peach / Potato の棲み分け、業務分担、Orca 最適化。人格・記憶・live state と最終署名ゲートは変更対象外。

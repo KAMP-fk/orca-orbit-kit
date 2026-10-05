@@ -1,6 +1,3 @@
-> 2026-10-05 更新: 現行の常設3窓口・必要時の専門担当・この会話の Owner 指示は
-> [team-topology.md](team-topology.md) を優先する。以下の旧編成・起動・レビュー割当の記録は、この依頼の現在の割当を上書きしない。
-
 # concafe-techo の自動検知と担当起動
 
 2026-10-03、Owner が自動検知の導入と最初の対象を concafe-techo のみに指定した。
@@ -12,7 +9,7 @@
 1. 既存の Orca automation、監視、対象と現行の担当契約を確認する。
 2. Linear Issue・GitHub Issue/PR・open PR head の CI の取得と差分保存を実装する。
 3. 通常の変化は Banana、明示された `type:decision` の Issue は Tomato、
-   3回連続の取得失敗とその回復は Kiwi へ渡す。初回基準と通常の CI 進捗ではモデルを起動しない。
+   3回連続の取得失敗とその回復は Banana へ渡す。初回基準と通常の CI 進捗ではモデルを起動しない。
 4. 担当ホームで Orca supervised worker を起動し、既存の稼働と重ねない。
    依頼・requested/effective・Task/Dispatch・結果・回収の証拠を保存する。
 5. fixture と隔離状態で不完全な取得・競合・不明な起動/終了・重複を検証する。
@@ -50,13 +47,16 @@ Banana の既存ホームに `event-watch serve` のターミナルを一つ置�
 | `type:decision` の Issue の更新 | Tomato | 相談材料の整理。Fable の実判断は自動代行しない |
 | PR 新規・head・本文・draft・label・close/merge 等の更新 | Banana | open PR と前回成功以降の更新を取得 |
 | open PR の check-runs / commit status の変化 | Banana | 失敗、取消、要対応、または取得したチェック群の完了。CI 全充足や PASS とは扱わない |
-| 取得失敗 | Kiwi | 同じ取得元で3回連続。既知の同じ障害を繰り返し起動しない |
-| 上記の取得障害から回復 | Kiwi | 未配送の障害報告は回復報告にまとめる |
+| 取得失敗 | Banana | 同じ取得元で3回連続。既知の同じ障害を繰り返し起動しない |
+| 上記の取得障害から回復 | Banana | 未配送の障害報告は回復報告にまとめる |
 
-Peach/Potato の汎用 Claude 起動と concafe の最終レビューを接続しない。
-最終判定・署名・Owner 代行判断は、この導入依頼に適用された直接の Owner 指示と
-対象契約の条件を別タスクで確認する。監視 worker は読み取りと材料整理だけを行う。
-repo の Opus/Astra 指定と直接の CAF-279 指示に矛盾があるため、自動の最終レビュー割当は行わない。
+レビュー・上位判断の割当は [team-topology.md](team-topology.md) に従う。
+監視 worker は読み取りと材料整理だけを行う。変化の検知は、製品修正・正式レビュー・
+上位判断の自動割当を新たに許可するものではない。
+
+旧 pending Kiwi は役名と履歴を保持し、受付だけ Banana へ解決する。
+同じ受付を使う active/unknown/未完了 batch があれば後続の起動を保留する。
+Kiwi への基盤修正は現物確認後、通常の案件依頼として Banana が割り当てる。
 
 ## 保存・排他・回収
 
@@ -108,42 +108,12 @@ macOS の権限、認証、provider 設定を自動変更せず、外部投稿�
 停止は clock を disabled にしてから、対象 coordinator の完全な handle を確認して扱う。
 進行中の worker の停止・破棄や既存の旧 automation の再開は、この clock の変更に混ぜない。
 
-## 2026-10-03 の導入確認
+## ソース更新と実稼働の区別
 
-- offline: `test_event_monitor.py` 23件、既存の `test_named*.py` 53件が成功。
-  ページ欠落、CI head 競合、モデル不一致、起動不明、同役の並行起動、
-  coordinator の実プロセス・専用 Run・要求の一回処理を fixture で検証した。
-- 隔離した実取得で Linear 314件・open PR 4件の CI を取得し、
-  PR #299 の実 head 更新を pending に保存した。モデルは起動していない。
-- 本番の初回基準は 2026-10-03 18:29 JST、Linear 314件・open PR 3件の CI。
-  初回起動0件、全取得元の失敗0件。
-- clock: `539362d1-267c-4b2a-a847-2c9c3c02fb7b`、Asia/Tokyo、5分間隔、enabled。
-  検証時だけ一時的に1分へ変更して、native の scheduled run
-  `5acbf165-19a0-45d2-ad9f-6881e4f17393` が `skipped_precheck` / exit 75、
-  provider の terminal / dispatchedAt が無いことを確認し、5分へ戻した。
-- coordinator: Banana の既存ホーム、`term_2cd2bcfc-0693-4704-a50c-6cb919f0c900`、
-  専用 `run_9bf1f325e4b9`。他の terminal identity を借りず、モデル無しで稼働。
-- 実 PR #301 / #303 と CI の変化3件を一つの Banana batch にまとめた。
-  `ctx_b1fabdf10b3c` / `task_aa6d1d5462c2` が native `ready`、
-  requested / effective とも `codex` / `gpt-6.1-sol` / `medium`。
-  通常の CI 進捗1件は observed のみで、別のモデルを起動していない。
-- 18:35 JST に同 worker の `succeeded` / dispatch `completed` を確認し、
-  coordinator が `worker-release` で transcript を captured、terminal を released にした。
-  イベント3件は completed。同じ Task の再起動は無い。
-- 5分へ戻した後の scheduled run `86e497a0-aba7-4b5b-bdea-c9575b9d897c` も
-  exit 75 で汎用 provider を起動せず、要求と handledRequest が一致した。
-  18:35:59 JST に全取得元の成功と lastTickError 空、追加起動0件を確認。
-  この時の CI 進捗は observed に保存しただけ。
-- 全担当ホーム各1件、skills root のカード1件。既存の Banana terminal を維持し、
-  監視用 terminal だけを追加した。Peach/Potato/Melon の作業を変更していない。
+上の health→Banana は現行ソースの契約。稼働中 coordinator が旧版を読み込み済みなら、
+ソース変更だけでは反映されない。この整合性整理では live DB・automation・監視プロセス・
+CI supervisor を変更しない。新しいソースの fixture 検証と、実稼働の観測結果を別々に報告する。
 
-確認中に二つの問題を扱った。手動 automation run は precheck を迂回してモデルを1回起動し、
-防御用 prompt に従って設定異常だけを報告し native completed となった。
-また、初版は `worktree ps` の `worktreeId` を `id` と読み違え、worker-start を呼ぶ前に停止した。
-必須の起動入力を mutation fence より前に検証するよう修正し、実応答形式の回帰テストを追加した。
-呼出前の例外という証拠がある、その未起動 batch だけを履歴を残して復旧した。
-native inventory に無いという理由だけで unknown を再配送する処理は追加していない。
-
-18:34 JST の再取得は全取得元で成功し、前回の CI head 競合は回復した。
-runtime の観測・起動・回収 receipt は private DB と Git 対象外の reports に保存する。
-この検証結果を最終独立レビュー PASS や製品 PR の verdict として扱わない。
+当時の導入計画、実取得・時計・receipt の確認は
+[導入時の記録](history/event-monitor-before-20261005.md) に保存した。
+記載された ID・件数・状態を現在の観測結果として使わない。

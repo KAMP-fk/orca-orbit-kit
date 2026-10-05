@@ -26,7 +26,7 @@ def selected_role():
 
 
 def main():
-    parser = argparse.ArgumentParser(description='担当ホームの新規タブを対話セッションで開始。依頼の送信・復元はしない')
+    parser = argparse.ArgumentParser(description='新規タブで Tomato/Banana の対話または Review のモデル無し受付を開始')
     parser.add_argument('--resolve', action='store_true', help='該当する role 名だけを返す。モデルは起動しない')
     args = parser.parse_args()
     try:

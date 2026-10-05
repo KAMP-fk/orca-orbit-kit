@@ -18,7 +18,7 @@ ${REVIEWER_NAME} — Linear "In Review" Issue 専用レビュアー（判定の�
 
 Options:
   --orca / --task          一件を新しい見える Orca タブで実行。保存・回収・終了後にそのタブだけ閉じる
-  --worktree path:<ABS>    --orca 用のタブ配置先。省略時は Peach のカード
+  --worktree path:<ABS>    --orca 用のタブ配置先。省略時は既存 Review のカード
   --dry-run               Orca タスクの起動内容を確認。サービス取得もモデル起動もしない
   --backend codex|claude   実行バックエンド（既定: claude）
                              codex  = ${CODEX_MODEL} / effort ${CODEX_EFFORT}
@@ -26,6 +26,7 @@ Options:
                              claude = ${CLAUDE_MODEL} / effort ${CLAUDE_EFFORT}（全パスで固定）
                                       restricted / Read,Glob,Grep のみ、user/project/local hook・MCP 無効
   --pr <owner/repo#N>      対象 PR を明示指定（複数可）。推測させたくないときに使う
+  --expected-repo <owner/repo>  共通 Review 受付の対象。別 repo の候補ではモデルを起動しない
   --run <owner/repo:RUN_ID>  受入条件が参照する GitHub Actions の run を一次データとして
                            パケットに入れる（複数可）。github/runs/ に run・job・ログを保存する
   --test-check <NAME>       テストを実行する CI チェック名を明示（複数可、完全一致）
@@ -43,6 +44,7 @@ USAGE
 
 
 parse_args() {
+  EXPECTED_REPO=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --list) DO_LIST=1; shift ;;
@@ -80,6 +82,8 @@ parse_args() {
       --backend=*) BACKEND="${1#*=}"; shift ;;
       --pr) [ $# -ge 2 ] || die "--pr needs owner/repo#N"; EXPLICIT_PRS+=("$2"); shift 2 ;;
       --pr=*) EXPLICIT_PRS+=("${1#*=}"); shift ;;
+      --expected-repo) [ $# -ge 2 ] && [ -n "$2" ] || die "--expected-repo needs owner/repo"; EXPECTED_REPO="$2"; shift 2 ;;
+      --expected-repo=*) EXPECTED_REPO="${1#*=}"; [ -n "$EXPECTED_REPO" ] || die "--expected-repo needs owner/repo"; shift ;;
       --run) [ $# -ge 2 ] || die "--run needs owner/repo:RUN_ID"; EXPLICIT_RUNS+=("$2"); shift 2 ;;
       --run=*) EXPLICIT_RUNS+=("${1#*=}"); shift ;;
       --test-check) [ $# -ge 2 ] || die "--test-check needs a check name"; EXPLICIT_TEST_CHECKS+=("$2"); shift 2 ;;
@@ -94,6 +98,15 @@ parse_args() {
 
   # Validate selectors before any external request or packet creation.
   local spec
+  if [ -n "$EXPECTED_REPO" ]; then
+    [[ "$EXPECTED_REPO" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9_.-]+$ ]] \
+      || die "--expected-repo の形式は owner/repo"
+    for spec in "${EXPLICIT_PRS[@]:-}" "${EXPLICIT_RUNS[@]:-}"; do
+      [ -n "$spec" ] || continue
+      [ "$(printf '%s' "${spec%%[#:]*}" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$EXPECTED_REPO" | tr 'A-Z' 'a-z')" ] \
+        || die "明示対象と --expected-repo が一致しない"
+    done
+  fi
   for spec in "${EXPLICIT_PRS[@]:-}"; do
     [ -n "$spec" ] || { [ "${#EXPLICIT_PRS[@]}" -eq 0 ] && continue; die "--pr needs owner/repo#N"; }
     [[ "$spec" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9_.-]+#[1-9][0-9]*$ ]] \

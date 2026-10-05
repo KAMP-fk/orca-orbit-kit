@@ -2,7 +2,8 @@
 
 常設の窓口は **Tomato・Banana・Review の3つ**。
 現行の責任・起動条件・レビューの効力は [team-topology.md](references/team-topology.md)、
-今回の計画と検証記録は [three-entry-plan.md](references/three-entry-plan.md)。
+3窓口への移行記録は [three-entry-plan.md](references/three-entry-plan.md)、
+機能・文書の整合性整理は [consistency-refactor.md](references/consistency-refactor.md)。
 `roles.json` が役・常設/必要時・受付先・profile/skill の正本。
 専門担当の能力とコマンドは残すが、固定ホームや待機モデルを必要条件にしない。
 
@@ -47,16 +48,20 @@ review --kind technical --repo /absolute/checkout --prompt-file /absolute/review
 review --kind final --repo /absolute/checkout --sha <current-full-HEAD-SHA> --pr owner/repo#123 --dry-run
 ```
 
-種別は必須。受入確認と技術確認を両方自動起動しない。受入確認の `--pr` は拒否し、
-固定 PR の正式判定へ暗黙に昇格させない。最終判定は正式な別タスクへの引渡し計画を返す。
-最終判定の非 dry-run は exit 3（引渡し待ち）。計画をレビュー完了や PASS と扱わない。
+種別は必須。受入確認と技術確認を両方自動起動しない。
+受入確認は `--issue`、技術確認は `--prompt-file`、最終判定は `--sha` を必須にする。
+受入確認の `--pr` / `--sha`、技術確認の `--issue` / `--pr` など、用途と合わない指定は拒否する。
+最終判定の `--pr owner/repo#N` は checkout の origin と一致させる。
+引渡し計画には checkout の観測 SHA・未コミット変更の有無、依頼本文・path・hash を残す。
+最終判定と concafe のレビューの非 dry-run は exit 3（引渡し待ち）。計画をレビュー完了や PASS と扱わない。
 共通入口は新規 subagent・別タスクへの送信・署名・Ready/merge を自動実行しない。
 
-この会話の concafe Owner 指示 CAF-279 を優先する。通常 Sol medium、複雑な技術作業は Sol high、
-最終独立署名 verdict は未関与の別 Codex タスク Astra high、上位判断は別 Codex タスク Astra medium。
-concafe のレビューは共通入口から汎用 Claude を起動せず、指定モデルと独立性を確認する正式経路へ返す。
-対象の契約を読み、CI・固定 SHA・署名・fail-closed・自動 Ready/guarded auto-merge・人間ゲートを維持する。
+モデルと独立性は [team-topology.md の Owner 指示](references/team-topology.md#この依頼に適用する-concafe-owner-指示) に従う。
+concafe は指定モデルと独立性を確認する正式な別 Codex タスク経路へ返す。
 他プロジェクトの個別依頼だけ、既存 Peach evidence pipeline / Potato の技術確認を選択できる。
+受入確認は origin の GitHub repository を `--expected-repo` として pipeline に渡す。
+候補 PR が別 repository に属すれば取得・モデル起動前に停止する。PR のレビュー SHA は
+pipeline が一次証拠から固定するため、checkout の観測 SHA と同じとは限らない。
 旧 `peach` / `potato` は互換コマンド。共通受付による整理を、旧 backend 実装を移行済みという意味にしない。
 
 ## 新規タブと配線
@@ -89,6 +94,8 @@ Tomato の skill 正本と記憶は別 repo/brain に残す。専門担当が人
 ## 実行と回収
 
 依頼付きの通常起動は一件ごとの見える実行タブ。手動対話の継続は `--interactive --orca` を明示する。
+新規の編集依頼は `--repo` の共通入口を使う。互換の `--cwd` / `--task` は
+指定済み checkout での直接実行で、編集用 worktree を新しく作る入口ではない。
 `--dry-run` は起動設定/経路計画のみで、Orca/model/サービス/state を変更しない。
 Sol の通常 effort は medium、用途別は [sol-effort.md](references/sol-effort.md)。
 モデル/provider の自動 fallback、Git/trust/permission の迂回はしない。
@@ -108,4 +115,5 @@ Sol の通常 effort は medium、用途別は [sol-effort.md](references/sol-ef
 
 監視ソースを更新しても、稼働中 coordinator が読み込んだコードは自動では変わらない。
 この整理では live DB、automation、監視プロセス、CI supervisor を変更・再起動しない。
-旧導入記録と保存・排他・回収の契約は [event-monitor.md](references/event-monitor.md)。
+保存・排他・回収と実稼働確認は [event-monitor.md](references/event-monitor.md)。
+旧編成・導入 receipt は同文書からリンクする履歴に保存し、現在の状態とは区別する。
