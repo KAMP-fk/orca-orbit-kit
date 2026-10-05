@@ -139,6 +139,23 @@ grep -qF "$head_sha" <<<"$record_body" \
   || die "レビュー記録に head の full SHA が逐語で無い: ${head_sha}
        **どの SHA を見たか書いていない記録を中継しない**(CAF-288 / ADR-062)"
 
+# CAF-308 の3行が記録に在るか。#304 が main に入った後、A（auto-merge）と
+# B（auto-ready）は status の target_url が指す本文を読み、この3行を要求する。
+# 無い本文を指した status は、打てても永久に hold される。
+# 2026-10-05 の #305 で実際に起きた（status は付いたが Ready にも merge にも進まない）。
+# **打てるが通らない status を作らない。**書式の正本は
+# docs/WORKFLOW.md「CAF-308: PR 本文に固定する識別子とレビュー本文」。
+for key in '実装担当識別子' 'レビュー担当識別子' '確認した full SHA'; do
+  grep -qE "^- ${key}: .+$" <<<"$record_body" \
+    || die "レビュー記録に CAF-308 の行が無い: - ${key}:
+       **A / B がこの3行を要求する。無い本文を指した status は永久に hold される**
+       書式: docs/WORKFLOW.md「CAF-308: PR 本文に固定する識別子とレビュー本文」
+         - 実装担当識別子: <PR 本文に固定した task / session ID>
+         - レビュー担当識別子: <独立レビューの session / task の ID>
+         - 確認した full SHA: <40桁>
+       **中継する側がこの3行を本文へ書いてから、もう一度渡してほしい**"
+done
+
 # 判定の逐語が記録に含まれているか。要約で修飾語が落ちるのを止める。
 # (CAF-383 / Fable 判定 2026-10-03。#296 は推論の一文が中継で落ちた)
 missing=""
