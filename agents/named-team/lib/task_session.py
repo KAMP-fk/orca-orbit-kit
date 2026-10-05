@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import queue
-from role_contract import find_workspace, role_routing
+from role_contract import find_workspace, role_routing, home_role
 
 
 
@@ -33,7 +33,7 @@ def save(path, value):
 def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None, collector=None,
                 run_dir=None, project_context=None):
     # Fail before starting a model if the intended visible workspace is unavailable.
-    selector = workspace or 'id:' + find_workspace(role, call(orca, 'worktree', 'list'))['id']
+    selector = workspace or 'id:' + find_workspace(home_role(role), call(orca, 'worktree', 'list'))['id']
     target = call(orca, 'worktree', 'show', '--worktree', selector)['worktree']
     selector = 'id:' + target['id']
     state_root = Path(os.environ.get('NAMED_TEAM_TASK_DIR', str(Path.home() / '.local/share/named-team/tasks')))

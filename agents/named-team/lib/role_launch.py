@@ -37,6 +37,9 @@ def launch_spec(role, cwd, prompt=None, model=None, effort=None, batch=False, dr
         policy = json.loads(settings.read_text())
         if policy.get('model') != REVIEW_MODEL or policy.get('effortLevel') != 'high' or policy.get('disableAllHooks') is not True or policy.get('permissions', {}).get('disableBypassPermissionsMode') != 'disable':
             raise ValueError('Potato の model / effort / permissions 設定が一致しない')
+        from review_routing import is_concafe_path
+        if is_concafe_path(cwd):
+            raise ValueError('concafe のレビューは Owner 指示の未関与の別 Codex タスク経路を使う。汎用 Claude は起動しない')
         definition = {'potato': {'description': 'Independent technical reviewer',
                       'prompt': skill.read_text().split('\n---\n', 1)[-1].strip(),
                       'model': REVIEW_MODEL, 'effort': 'high', 'tools': ['Read', 'Glob', 'Grep'],

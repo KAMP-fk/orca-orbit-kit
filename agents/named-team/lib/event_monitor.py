@@ -20,7 +20,7 @@ import time
 from urllib.parse import urlencode
 import uuid
 
-from role_contract import ROOT, ROLES, find_workspace, orca_command, local_orca_only, skill_root
+from role_contract import ROOT, ROLES, home_role, find_workspace, orca_command, local_orca_only, skill_root
 
 CONFIG = ROOT / 'config/concafe-events.json'
 AUTO_ROLES = ('banana', 'tomato', 'kiwi')
@@ -242,7 +242,7 @@ def state(config, override=None):
 
 def route(source, row):
     if source == 'health':
-        return 'kiwi'
+        return 'banana'
     if source in ('linear', 'github-issues') and 'type:decision' in row.get('labels', []):
         return 'tomato'
     return 'banana'
@@ -430,7 +430,13 @@ def dispatch(db, client, config):
         # A prepared/unknown launch is fenced forever until explicitly reconciled.
         if db.execute("SELECT 1 FROM batches WHERE role=? AND status != 'completed'", (role,)).fetchone():
             continue
-        target = find_workspace(role, snapshot)
+        # Old Kiwi outbox/batches retain their audit identity. New health events
+        # go to Banana; any old pending Kiwi task uses Banana's existing entry.
+        target = find_workspace(home_role(role), snapshot)
+        siblings = [name for name in AUTO_ROLES if home_role(name) == home_role(role)]
+        if any(db.execute("SELECT 1 FROM batches WHERE role=? AND status != 'completed'", (name,)).fetchone()
+               for name in siblings):
+            continue
         if any(agent.get('state') not in ('done', 'idle') for agent in target.get('agents', [])):
             continue
         # worktree ps exposes worktreeId, not the folder-list id field.

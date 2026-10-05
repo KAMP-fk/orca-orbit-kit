@@ -18,7 +18,7 @@ Orca 上の監督付き連携を別製品の subagent 状態で代替しない�
 プロジェクトが別 Codex タスクを要求する場合はその正式な経路を使う。
 concafe の新規 subagent / 追加依頼の禁止を名前付き launcher で迂回しない。
 
-役割は [共通契約](/Users/kamp/orca/agents/named-team/references/roles.md) で選ぶ。
+役割は [共通契約](/Users/kamp/orca/agents/named-team/references/team-topology.md) で選ぶ。
 Kiwi は観測・引き継ぎ基盤、Peach は In Review Issue の AC 判定、Potato は固定差分の技術確認。
 この三役は Banana の配下の専門担当。通常の開発進行では Banana が割当と回収を持つ。
 相談事項は意図・前提の整理なら Tomato、材料が揃った具体的な選択なら Fable に確認する。
@@ -44,3 +44,6 @@ Kiwi は観測・引き継ぎ基盤、Peach は In Review Issue の AC 判定、
 モデルを変えること、役割名を変えること、別窓を開くことだけでは未関与の証明にならない。
 レビュー担当が修正した場合は実装側へ移り、別の未関与担当にレビューを渡す。
 [review.md](review.md) の固定 SHA と証拠の引き渡しを使う。
+
+専門担当は必要時だけ起動する。通常の製品実装は Banana、観測基盤修正は Kiwi、レビュー基盤修正は Melon。
+レビューの受付は `review --kind acceptance|technical|final` に揃え、両方の専門レビューを毎回自動起動しない。

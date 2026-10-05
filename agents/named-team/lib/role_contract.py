@@ -9,6 +9,12 @@ ROOT = Path(__file__).resolve().parent.parent
 ROLES = json.loads((ROOT / 'roles.json').read_text(encoding='utf-8'))
 NAMES = {name: role['workspace'] for name, role in ROLES.items()}
 LAUNCH_ROLES = tuple(name for name, role in ROLES.items() if role['backend'] != 'reviewer')
+HOME_ROLES = tuple(name for name, role in ROLES.items() if role['activation'] == 'home')
+
+
+def home_role(role):
+    """An on-demand specialist uses an existing entry, never a required extra home."""
+    return ROLES[role]['homeRole']
 
 
 def workspace_root(role):
@@ -16,7 +22,7 @@ def workspace_root(role):
 
 
 def role_routing(role):
-    return {key: ROLES[role][key] for key in ('layer', 'parentRole', 'consultation') if key in ROLES[role]}
+    return {key: ROLES[role][key] for key in ('layer', 'parentRole', 'consultation', 'activation', 'homeRole', 'entrypoint') if key in ROLES[role]}
 
 
 def find_workspace(role, snapshot, required=True):

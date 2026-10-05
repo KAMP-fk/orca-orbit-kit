@@ -85,7 +85,7 @@ class ProjectTaskTests(unittest.TestCase):
         if args[:2] == ('worktree', 'list'):
             homes = [{'id': role + '::' + str(role_contract.workspace_root(role)),
                       'path': str(role_contract.workspace_root(role)), 'displayName': info['workspace']}
-                     for role, info in role_contract.ROLES.items()]
+                     for role, info in role_contract.ROLES.items() if role in role_contract.HOME_ROLES]
             source = {'id': 'fixture-repo::' + str(self.repo), 'path': str(self.repo)}
             return {'worktrees': [*homes, source, *self.worktrees], 'truncated': False}
         if args[:2] == ('worktree', 'create'):
@@ -147,6 +147,14 @@ class ProjectTaskTests(unittest.TestCase):
 
     def plan(self, **kwargs):
         return project_tasks.request_plan('kiwi', self.repo, 'Fixture implementation request', task_id='fixture-task', **kwargs)
+
+    def test_melon_allocates_and_collects_without_a_specialist_home(self):
+        plan = project_tasks.request_plan('melon', self.repo, 'Fixture implementation request', task_id='melon-only-entry')
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        self.assertEqual(record['roleRouting']['activation'], 'on-demand')
+        self.assertEqual(record['coordinatorWorktreeId'], 'banana::' + str(role_contract.workspace_root('banana')))
+        self.assertEqual(self.model_calls(), 1)
 
     def run_job(self, plan=None):
         plan = plan or self.plan()

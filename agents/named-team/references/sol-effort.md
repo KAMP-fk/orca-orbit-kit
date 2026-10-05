@@ -1,3 +1,6 @@
+> 2026-10-05 更新: 現行の常設3窓口・必要時の専門担当・この会話の Owner 指示は
+> [team-topology.md](team-topology.md) を優先する。以下の旧編成・起動・レビュー割当の記録は、この依頼の現在の割当を上書きしない。
+
 # Sol 6.1 の effort 選択
 
 2026-10-03 JST の Owner 指示。Codex `gpt-6.1-sol` の通常設定は `medium`。

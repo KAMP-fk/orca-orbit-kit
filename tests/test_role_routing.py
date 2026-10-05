@@ -34,7 +34,7 @@ class RoutingTests(unittest.TestCase):
         loader = importlib.machinery.SourceFileLoader('workspace_checker', str(PACKAGE / 'bin/start-workspaces'))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec);loader.exec_module(module)
-        rows = [{'displayName': name, 'id': role + '::/fixture/' + role} for role, name in role_contract.NAMES.items()]
+        rows = [{'displayName': name, 'path': str(role_contract.workspace_root(role)), 'id': role + '::/fixture/' + role} for role, name in role_contract.NAMES.items() if role in role_contract.HOME_ROLES]
         calls = []
         def invoke(argv, **kwargs):
             calls.append(argv)
@@ -52,7 +52,7 @@ class RoutingTests(unittest.TestCase):
              mock.patch.object(module.subprocess, 'run', side_effect=invoke), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             module.main()
-        self.assertEqual(len(output.getvalue().splitlines()), 6)
+        self.assertEqual(len(output.getvalue().splitlines()), 3)
         self.assertTrue(all(call[0] == '/fixture/orca' for call in calls))
 
 
@@ -74,7 +74,7 @@ class PeachTaskTests(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertEqual(data['argv'], [str(self.reviewer), 'CAF-123', '--pr', 'owner/repo#123',
                                         '--test-check', 'CI / unit tests'])
-        self.assertEqual(data['taskWorkspace'], 'name:Peach｜Issue の受入判定')
+        self.assertEqual(data['taskWorkspace'], None)
         self.assertFalse(data['startsSession'])
         self.assertFalse(self.fixture.fixture.log.exists())
         self.assertFalse(self.fixture.state.exists())

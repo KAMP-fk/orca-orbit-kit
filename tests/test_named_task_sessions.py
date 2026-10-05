@@ -22,7 +22,8 @@ if a[:2]==['worktree','list']:
  roles=json.loads(Path(os.environ['NAMED_TEAM_ROLE_CONTRACT']).read_text())
  rows=[{'id':'fixture-workspace','hostId':'local',
    'path':str(Path(v['workspaceRoot']).expanduser().absolute()),
-   'displayName':v.get('workspaceAliases',[v['workspace']])[0]} for v in roles.values()]
+   'displayName':v.get('workspaceAliases',[v['workspace']])[0]} for v in roles.values()
+   if not os.environ.get('FIXTURE_ONLY_ENTRIES') or v['activation']=='home']
  if os.environ.get('FIXTURE_DUPLICATE_ROLE'):
   role=roles[os.environ['FIXTURE_DUPLICATE_ROLE']]
   rows.append({'id':'duplicate','path':str(Path(role['workspaceRoot']).expanduser().absolute()),'displayName':role['workspace']})
@@ -96,6 +97,17 @@ sys.exit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT','0')))
 
 
 class TaskSessionTests(unittest.TestCase):
+    def test_specialist_task_launches_and_collects_with_only_three_entry_homes(self):
+        self.env['FIXTURE_ONLY_ENTRIES'] = '1'
+        for role in ('kiwi', 'melon', 'potato'):
+            with self.subTest(role=role):
+                result = self.fixture.launch(role, '--task', 'Fixture scoped request', env=self.env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                run = Path((self.state / 'latest').read_text())
+                self.assertTrue((run / 'finished.json').is_file())
+                request = json.loads((run / 'request.json').read_text())
+                self.assertEqual(request['roleRouting']['homeRole'], 'peach' if role == 'potato' else 'banana')
+
     def setUp(self):
         self.fixture = test_named_agents.NamedAgentsTests()
         self.fixture.setUp()

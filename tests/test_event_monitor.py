@@ -38,7 +38,7 @@ class FakeClient:
                     'worktrees': [{'worktreeId': role+'-home', 'path': str(monitor.ROOT.parents[1]/'workspaces/orca'/role.capitalize())
                                   if role in ('kiwi','potato','melon') else str(Path(value['workspaceRoot']).expanduser()),
                                   'displayName': value['workspace'], 'agents': [{'state':'working'}] if self.busy else [],
-                                  'hostId': 'local'} for role,value in monitor.ROLES.items()]}
+                                  'hostId': 'local'} for role,value in monitor.ROLES.items() if value['activation'] == 'home']}
         if args[:2] == ('orchestration', 'worker-start'):
             self.started += 1
             if self.launch_error:
@@ -112,6 +112,32 @@ class MonitorTests(unittest.TestCase):
         self.client.busy=False
         self.assertEqual(monitor.dispatch(self.db,self.client,self.config),1)
 
+    def test_old_pending_kiwi_uses_banana_entry_without_rewriting_its_history(self):
+        self.changed()
+        with self.db:
+            self.db.execute("UPDATE events SET role='kiwi'")
+        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 1)
+        launch = next(c for c in self.client.calls if c[:2] == ('orchestration', 'worker-start'))
+        self.assertEqual(launch[launch.index('--worktree') + 1], 'id:banana-home')
+        self.assertEqual(self.events()[0]['role'], 'kiwi')
+
+    def test_unknown_kiwi_batch_blocks_shared_banana_home_without_redispatch(self):
+        self.changed()
+        with self.db:
+            self.db.execute("INSERT INTO batches VALUES ('old','kiwi','unknown',NULL,NULL)")
+        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 0)
+        self.assertEqual(self.events()[0]['status'], 'pending')
+        self.assertEqual(self.client.started, 0)
+
+    def test_banana_and_old_kiwi_pending_cannot_both_start_in_one_snapshot(self):
+        self.changed()
+        with self.db:
+            monitor.enqueue(self.db, 'health', {'key': 'legacy', 'state': 'failed'}, 'failed', NOW)
+            self.db.execute("UPDATE events SET role='kiwi' WHERE source='health'")
+        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 1)
+        self.assertEqual(self.client.started, 1)
+        self.assertEqual(sum(row['status'] == 'pending' for row in self.events()), 1)
+
     def test_missing_native_worktree_identity_does_not_prepare_or_launch(self):
         self.changed()
         original = self.client.call
@@ -179,7 +205,7 @@ class MonitorTests(unittest.TestCase):
         monitor.observe(self.db,'linear',[row],NOW)
         for _ in range(5):monitor.failed(self.db,'linear','timeout',NOW,3)
         self.assertEqual(len(self.events()),1)
-        self.assertEqual(self.events()[0]['role'],'kiwi')
+        self.assertEqual(self.events()[0]['role'],'banana')
         self.assertEqual(json.loads(self.db.execute('SELECT payload FROM facts').fetchone()['payload']),row)
         monitor.observe(self.db,'linear',[row],NOW,3)
         self.assertEqual([e['status'] for e in self.events()],['superseded','pending'])

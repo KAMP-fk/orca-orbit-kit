@@ -10,7 +10,7 @@ import sys
 
 from checkout_context import common_dir, require_checkout as observe, resolve_ref
 import project_workspaces as workspaces
-from role_contract import LAUNCH_ROLES, find_workspace, role_routing
+from role_contract import LAUNCH_ROLES, find_workspace, role_routing, home_role
 from role_launch import launch_spec
 from task_session import launch_task, save
 
@@ -118,9 +118,10 @@ def _replay_result(job, record, request_hash, metadata):
 
 
 def _execute(orca, record, job, prompt, model, effort, metadata):
-    # Resolve homes before any worktree mutation; keep their cards intact.
+    # Resolve the shared entry before any worktree mutation, not a specialist's
+    # retired home. The task itself runs in its assigned checkout.
     homes = workspaces.inventory(orca)
-    find_workspace(record['role'], {'worktrees': homes})
+    find_workspace(home_role(record['role']), {'worktrees': homes})
     if record['role'] in EDIT_ROLES:
         record['coordinatorWorktreeId'] = find_workspace('banana', {'worktrees': homes})['id']
     if record['worktreePlan'] == 'create':

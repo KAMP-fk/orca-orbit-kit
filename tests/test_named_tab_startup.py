@@ -58,7 +58,7 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
             executable.write_text(fixture)
             executable.chmod(0o755)
 
-    def shell(self, role='kiwi', env=None, cwd=None, options='-flic', before='', after=''):
+    def shell(self, role='banana', env=None, cwd=None, options='-flic', before='', after=''):
         selected = (env or self.env).copy()
         path = cwd or self.roots[role]
         selected.setdefault('ORCA_WORKTREE_ID', 'fixture::' + str(path))
@@ -73,36 +73,29 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
         return subprocess.run([sys.executable, str(INSTALLER), '--home', str(target), *args],
                               text=True, capture_output=True, timeout=15)
 
-    def test_each_home_opens_its_idle_role_with_existing_model_controls(self):
+    def test_only_conversation_homes_start_models_and_review_is_model_free(self):
         for role in self.roots:
             with self.subTest(role=role):
                 self.log.unlink(missing_ok=True)
                 result = self.shell(role)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 launches = self.launches()
-                self.assertEqual(len(launches), 1, result.stdout + result.stderr)
-                launch = launches[0]
-                argv = launch['argv']
-                self.assertEqual(launch['cwd'], str(self.roots[role]))
-                self.assertEqual(launch['marker'], 'term_fixture')
+                if role not in ('tomato', 'banana'):
+                    self.assertEqual(launches, [], result.stdout + result.stderr)
+                    if role == 'peach':
+                        self.assertIn('Review｜受入・技術レビュー', result.stdout)
+                        self.assertIn('--kind final', result.stdout)
+                    continue
+                self.assertEqual(len(launches), 1)
+                argv = launches[0]['argv']
+                self.assertEqual(launches[0]['cwd'], str(self.roots[role]))
+                self.assertEqual(launches[0]['marker'], 'term_fixture')
                 self.assertNotIn('--', argv, 'an unsolicited prompt was supplied')
                 self.assertNotIn('exec', argv)
-                self.assertNotIn('--print', argv)
-                if role in ('peach', 'potato'):
-                    self.assertEqual(Path(argv[0]).name, 'claude')
-                    self.assertEqual(argv[argv.index('--agent') + 1], role)
-                    self.assertEqual(argv[argv.index('--model') + 1], 'claude-opus-5-5')
-                    self.assertEqual(argv[argv.index('--effort') + 1], 'high')
-                    self.assertIn('--restricted', argv)
-                    self.assertIn('--disable-slash-commands', argv)
-                    self.assertEqual(argv[argv.index('--tools') + 1], 'Read,Glob,Grep')
-                    self.assertEqual(json.loads(argv[argv.index('--mcp-config') + 1]), {'mcpServers': {}})
-                    self.assertEqual(argv[argv.index('--permission-mode') + 1], 'dontAsk')
-                else:
-                    self.assertEqual(Path(argv[0]).name, 'codex')
-                    self.assertEqual(argv[argv.index('-p') + 1], role)
-                    self.assertEqual(argv[argv.index('-c') + 1], 'model_reasoning_effort="medium"')
-                    self.assertIn('check_for_update_on_startup=false', argv)
+                self.assertEqual(Path(argv[0]).name, 'codex')
+                self.assertEqual(argv[argv.index('-p') + 1], role)
+                self.assertIn('model_reasoning_effort="medium"', argv)
+                self.assertIn('check_for_update_on_startup=false', argv)
 
     def test_other_surfaces_shells_and_worktrees_never_start_a_model(self):
         cases = [('other-app', {'TERM_PROGRAM': 'Apple_Terminal'}, None, '-flic'),
@@ -147,7 +140,7 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
         self.assertEqual(len(self.launches()), 1, 'a new tab was suppressed by an inherited old handle')
 
     def test_missing_owned_profile_returns_to_shell_without_a_model(self):
-        (self.home / '.codex/kiwi.config.toml').unlink()
+        (self.home / '.codex/banana.config.toml').unlink()
         result = self.shell(after='print shell-still-usable')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('shell-still-usable', result.stdout)

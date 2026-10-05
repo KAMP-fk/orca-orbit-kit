@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
 from task_session import launch_task, review_result
 from role_launch import launch_spec, EFFORT
-from role_contract import orca_command, local_orca_only, workspace_root, role_routing
+from role_contract import orca_command, local_orca_only, workspace_root, role_routing, home_role
 
 
 def project_request(role, args, parser):
@@ -137,7 +137,7 @@ def main():
                           'requestedModel': spec['requestedModel'],
                           'requestedEffort': effort, 'mode': 'task' if task else 'orca' if args.orca else 'exec' if batch else 'interactive',
                           'taskWorkspace': 'path:' + str(worktree_path) if worktree_path else None,
-                          'roleWorkspaceRoot': str(workspace_root(role)),
+                          'roleWorkspaceRoot': str(workspace_root(home_role(role))),
                           'visible': task, 'closeAfterResult': task,
                           'argv': launch, 'startsSession': False}, ensure_ascii=False, indent=2))
         return 0

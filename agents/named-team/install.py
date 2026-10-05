@@ -33,6 +33,7 @@ def main():
             links.append((claude_home / 'agents/potato.md', ROOT / 'roles/potato/claude/agent.md'))
         else:
             links.append((config_home / (role + '.config.toml'), ROOT / 'roles' / role / 'codex/profile.config.toml'))
+    links.append((target_home / '.local/bin/review', ROOT / 'bin/review'))
     legacy_profile = config_home / 'potato.config.toml'
     legacy_source = ROOT / 'roles/potato/codex/profile.config.toml'
     zshrc = target_home / '.zshrc'

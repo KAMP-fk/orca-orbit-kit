@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'lib'))
-from role_contract import NAMES, ROLES, orca_command, local_orca_only, find_workspace, workspace_root, role_routing
+from role_contract import NAMES, ROLES, HOME_ROLES, home_role, orca_command, local_orca_only, find_workspace, workspace_root, role_routing
 
 
 def call(*args):
@@ -25,11 +25,11 @@ def main():
     parser.add_argument('--check', action='store_true', help='Read-only home and coordination check')
     args = parser.parse_args()
     local_orca_only()
-    roles = [args.role] if args.role else list(NAMES)
-    # Every role has an existing declared home. A missing or renamed card must
-    # never create another role in skills or another project.
+    roles = [args.role] if args.role else list(HOME_ROLES)
+    # Resolve only the three permanent entries. Missing/ambiguous entries must
+    # never create another card; specialists do not require retired homes.
     snapshot = call('worktree', 'list')
-    targets = {role: find_workspace(role, snapshot) for role in roles}
+    targets = {role: find_workspace(home_role(role), snapshot) for role in roles}
     parents = {role: find_workspace(ROLES[role]['parentRole'], snapshot)['id']
                if ROLES[role]['parentRole'] else None
                for role in roles if 'parentRole' in ROLES[role]}
@@ -39,11 +39,13 @@ def main():
         subprocess.run([sys.executable, str(ROOT / 'bin/setup')], check=True)
     for role, target in targets.items():
         wid = target['id']
-        terminals = call('terminal', 'list', '--worktree', 'id:' + wid)['terminals']
+        permanent = role in HOME_ROLES
+        terminals = call('terminal', 'list', '--worktree', 'id:' + wid)['terminals'] if permanent else []
         # Task sessions are created by the role launcher and closed after result collection.
         # Idle agents make workspace cards look active without any assigned task.
-        print(json.dumps({'role': role, 'workspace': target['displayName'], 'state': 'ready',
-                          'workspaceRoot': str(workspace_root(role)), 'workspacePurpose': 'role-home',
+        print(json.dumps({'role': role, 'workspace': target['displayName'], 'state': 'ready' if permanent else 'on-demand',
+                          'workspaceRoot': str(workspace_root(home_role(role))),
+                          'workspacePurpose': 'role-home' if permanent else 'task-specialist',
                           **role_routing(role), 'coordinatorWorktreeId': parents.get(role),
                           'orcaParentWorktreeId': target.get('parentWorktreeId'),
                           'handles': [t['handle'] for t in terminals],

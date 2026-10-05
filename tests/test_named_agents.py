@@ -406,14 +406,14 @@ raise SystemExit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT', '0')))
         nested = self.terminal_command(log['argv'])
         self.assertEqual(nested[2], str(self.bin / 'codex'))
 
-    def test_install_is_idempotent_and_owned_uninstall_cleans_all_fifteen_links(self):
+    def test_install_is_idempotent_and_owned_uninstall_cleans_all_sixteen_links(self):
         target = self.root / 'isolated-home'
         for _ in range(2):
             result = self.install(target)
             self.assertEqual(result.returncode, 0, result.stderr)
         result = self.install(target, '--check')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(result.stdout.splitlines()), 15)
+        self.assertEqual(len(result.stdout.splitlines()), 16)
         for role in ROLES:
             self.assertEqual((target / '.local/bin' / role).resolve(), LAUNCHER)
             self.assertEqual((target / '.agents/skills' / role).resolve(),

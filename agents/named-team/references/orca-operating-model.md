@@ -9,7 +9,8 @@ Owner 提供の「Orca エージェント編成 参考情報」を、既存の�
 
 Tomato は相談・設計の窓口、Banana は開発の分解・進行・統合の責任者。
 Kiwi は観測・引継ぎ、Melon はレビュー基盤、Peach/Potato は既存の判定・技術確認を持つ。
-担当ホームは一役一つ。編集案件は原則一件に一つの worktree と一つの実行担当を置き、
+常設ホームは Tomato・Banana・Review の3つ。専門担当は必要時だけ起動し、固定ホームを必要としない。
+現行の受付と Owner 方針は [team-topology.md](team-topology.md)。編集案件は原則一件に一つの worktree と一つの実行担当を置き、
 必要な案件だけブラウザを使う。読み取り調査・固定差分レビュー・既存案件の継続は
 契約に従って既存 checkout を使える。案件用 checkout を渡された担当はそこで処理する。
 

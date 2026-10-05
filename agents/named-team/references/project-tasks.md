@@ -67,7 +67,7 @@ kiwi --repo /absolute/path/to/repo --prompt-file /absolute/path/to/request.md --
 ```
 
 `--repo` は対象のローカル Git checkout。登録済み Orca repo を一意に照合する。
-未登録 repo、ホーム欠落、曖昧/不完全な一覧では起動しない。勝手に別 repo を登録しない。
+未登録 repo、受付ホーム欠落、曖昧/不完全な一覧では起動しない。専門担当の旧ホームは不要。勝手に別 repo を登録しない。
 新規編集 worktree は独立した案件用の場所とし、Git base は Orca repo の既定を使う。
 `--base-ref` を明示した場合だけその ref を full SHA に固定する。元の feature branch や
 未コミット変更を暗黙に取り込まず、元の変更はそのまま保持する。
@@ -130,3 +130,9 @@ Orca 実機ではモデル無しの backend fixture を使い、一件の worktr
 計125件が rc=0。変更前との起動設定20通り・依頼計画4通りの一致も確認した。
 今回の整理では実モデル・実セッションを検証に使っていない。
 計画と実行結果は [リファクタリング記録](refactor-plan.md) に残す。
+
+## 2026-10-05 の受付整理
+
+常設は Tomato・Banana・Review。Kiwi/Melon は編集依頼ごとの worktree で起動し、
+固定ホームを前提にしない。汎用 Potato の受付は Review の既存ホームを使う。
+受入/技術/最終レビューの共通受付と Owner 方針は [team-topology.md](team-topology.md)。

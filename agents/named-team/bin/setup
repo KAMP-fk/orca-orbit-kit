@@ -8,7 +8,7 @@ import sys
 root = Path(__file__).resolve().parent.parent
 subprocess.run([sys.executable, str(root / 'install.py')], check=True)
 subprocess.run([sys.executable, str(root / 'install.py'), '--check'], check=True)
-for executable in ('codex', 'claude', 'orca'):
+for executable in ('codex', 'orca'):
     if not shutil.which(executable):
         raise SystemExit('Missing executable: ' + executable)
-print('Setup ready: Tomato / Banana / Kiwi / Melon = Codex; Potato = Claude Opus 5.5 / high; Peach uses its evidence pipeline')
+print('Setup ready: Tomato / Banana / Review entries; Kiwi / Melon / Peach / Potato execute only on request. Optional backends are checked at launch.')

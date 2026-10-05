@@ -90,20 +90,24 @@ print(json.dumps({'ok':True,'result':result}))
         result, calls = self.startup(self.snapshot(), '--check')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual({json.loads(line)['worktreeId'] for line in result.stdout.splitlines()},
-                         {role + '-existing' for role in contract.ROLES})
+                         {role + '-existing' for role in contract.HOME_ROLES})
         self.assertEqual(calls[0][:2], ['worktree', 'list'])
-        self.assertEqual(len(calls), 7)
+        self.assertEqual(len(calls), 4)
         self.assertTrue(all(call[:2] == ['terminal', 'list'] for call in calls[1:]))
 
-    def test_missing_specialist_home_never_recreates_an_old_skills_card(self):
+    def test_specialists_need_only_their_entry_not_an_extra_home(self):
+        snapshot = self.snapshot()
+        snapshot['worktrees'] = [row for row in snapshot['worktrees']
+                                 if row['id'].split('-')[0] in contract.HOME_ROLES]
         for role in ('kiwi', 'potato', 'melon'):
-            snapshot = self.snapshot()
-            row = next(row for row in snapshot['worktrees'] if row['id'] == role + '-existing')
-            row['path'] = str(Path.home() / '.agents/skills')
-            result, calls = self.startup(snapshot, role)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('Missing role home: ' + role, result.stderr)
-            self.assertEqual([call[:2] for call in calls], [['worktree','list']])
+            result, calls = self.startup(snapshot, role, '--check')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report['state'], 'on-demand')
+            self.assertEqual(report['workspacePurpose'], 'task-specialist')
+            self.assertEqual(report['worktreeId'], contract.home_role(role) + '-existing')
+            self.assertEqual(report['coordinatorWorktreeId'], 'banana-existing')
+            self.assertEqual([call[:2] for call in calls], [['worktree', 'list']])
 
     def test_missing_brain_home_blocks_setup_instead_of_creating_a_skills_card(self):
         snapshot = self.snapshot()
@@ -127,13 +131,16 @@ print(json.dumps({'ok':True,'result':result}))
         result, calls = self.startup(snapshot, '--check')
         self.assertEqual(result.returncode, 0, result.stderr)
         reports = {row['role']:row for row in map(json.loads, result.stdout.splitlines())}
-        for role in ('peach', 'kiwi', 'potato'):
-            self.assertEqual(reports[role]['coordinatorWorktreeId'], 'banana-existing')
+        self.assertEqual(set(reports), set(contract.HOME_ROLES))
+        self.assertEqual(reports['peach']['coordinatorWorktreeId'], 'banana-existing')
         self.assertEqual(reports['peach']['orcaParentWorktreeId'], 'existing-git-parent')
         self.assertIsNone(reports['tomato']['coordinatorWorktreeId'])
         self.assertIsNone(reports['banana']['coordinatorWorktreeId'])
-        self.assertNotIn('parentRole', reports['melon'])
-        self.assertEqual(reports['potato']['consultation'], ['tomato','fable'])
+        result, calls = self.startup(snapshot, 'melon', '--check')
+        melon = json.loads(result.stdout)
+        self.assertEqual(melon['parentRole'], 'banana')
+        self.assertEqual(melon['coordinatorWorktreeId'], 'banana-existing')
+        self.assertEqual(melon['consultation'], ['tomato', 'fable'])
         self.assertTrue(all(call[:2] in (['worktree','list'], ['terminal','list']) for call in calls))
 
     def test_missing_coordinator_is_detected_before_creating_or_mutating_a_card(self):

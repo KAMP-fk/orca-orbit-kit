@@ -1,160 +1,111 @@
 # Named agents on Orca
 
-五役の責任・引き渡し先・判定の効力は [references/roles.md](references/roles.md)。
-今回の計画は [references/refactor-plan.md](references/refactor-plan.md)。
-役割名、workspace 名、provider、effort、skill の場所は `roles.json` が正本。
-brain の Tomato/Banana を上位層、Banana 配下の Peach/Kiwi/Potato を専門担当とする。通常の割当・回収は Banana、相談事項の確認は Tomato または Fable。構成・相談の分け方は [共通契約](references/roles.md) に従う。
+常設の窓口は **Tomato・Banana・Review の3つ**。
+現行の責任・起動条件・レビューの効力は [team-topology.md](references/team-topology.md)、
+今回の計画と検証記録は [three-entry-plan.md](references/three-entry-plan.md)。
+`roles.json` が役・常設/必要時・受付先・profile/skill の正本。
+専門担当の能力とコマンドは残すが、固定ホームや待機モデルを必要条件にしない。
 
-| 名前 | 責任 | 通常の実行 |
+| 窓口/専門担当 | 責任 | 起動 |
 |---|---|---|
-| Tomato | 相談・判断材料・受け渡し | Codex gpt-6.1-sol / medium |
-| Banana | 承認済み開発の進行・実装・統合 | Codex gpt-6.1-sol / medium |
-| Kiwi | 観測・引き継ぎ基盤の実装 | Codex gpt-6.1-sol / medium |
-| Peach | In Review Issue の AC 判定 | 既存の evidence pipeline、Claude Opus 5.5 / high |
-| Potato | 固定差分の未関与技術確認 | Claude Opus 5.5 / high、Read / Glob / Grep |
+| Tomato | Owner の相談、目的・前提・判断材料、開発の受け渡し | 常設ホームの新規タブで Codex 対話入力待ち |
+| Banana | 開発の分解・割当・通常実装・検証・統合・完了追跡 | 常設ホームの新規タブで Codex 対話入力待ち |
+| Review | 受入確認・技術確認・最終判定の受付 | 既存 Peach ホーム。依頼なしではモデルを起動しない |
+| Kiwi | 観測・自動検知・鮮度・取得失敗・履歴・引継ぎ基盤の実装 | Banana の依頼ごとの案件 worktree |
+| Melon | レビュー packet・CI 照合・判定基盤の実装 | Banana の依頼ごとの案件 worktree |
+| Peach / Potato | AC の受入確認 / 固定差分の独立技術確認 | Review で必要な種別だけ明示選択 |
 
-Melon の既存定義は維持する。モデルの自動 fallback はしない。
-Sol 6.1 は通常 Medium、作業に応じて Low / High / xhigh / Max を使う。
-用途・具体例・起動時の選択は [Sol effort 方針](references/sol-effort.md)。
-skill を適用しても今のチャットの model/effort・関与歴・権限は切り替わらない。
-concafe の正式な最終レビュー・判断は現行の別 Codex タスク経路を使う。
+Fable は判断時だけの相談先。Owner 判断待ちでは [owner-decision.md](references/owner-decision.md)
+に従い、Fable 確認後に推奨案と理由付きの選択肢を提示する。返答なしを承認と読まない。
 
-## 呼び出し
+## 案件の受付
 
-Codex のチャットでは `$tomato` / `$banana` / `$kiwi` / `$peach` / `$potato`。
-新しい skill がまだ表示されない場合は次のチャットで読み込む。
-人格と記憶の原本は brain に残す。定義の編集だけで日誌・窓口を更新しない。
-
-ターミナルの依頼は UTF-8 ファイルで渡せる。内容を shell 展開せず、改行と引用を保持する。
+通常の製品実装は Banana。Kiwi/Melon は該当する基盤の変更だけ担当する。
+一件ごとの依頼を UTF-8 ファイルで渡し、編集は隔離 worktree、読み取りは対象 checkout を使う。
 
 ```sh
-banana --cwd /path/to/project --prompt-file /path/to/request.md
-kiwi --cwd /Users/kamp/.claude/skills/Tomato --prompt-file /path/to/request.md
-potato --cwd /path/to/project --prompt-file /path/to/review.md
-peach --orca CAF-123 --pr owner/repo#123
+banana --repo /absolute/checkout --task-id product-fix-001 --prompt-file /absolute/request.md
+kiwi --repo /absolute/checkout --task-id watch-fix-001 --from-role banana --prompt-file /absolute/request.md
+melon --repo /absolute/checkout --task-id packet-fix-001 --from-role banana --prompt-file /absolute/request.md
+# 上記と同じ Banana 基準の共通実装
+~/.agents/skills/banana/bin/task --role kiwi --repo /absolute/checkout \
+  --task-id watch-fix-001 --from-role banana --prompt-file /absolute/request.md --dry-run
 ```
 
-依頼付きの通常起動、`--task`、旧 `--exec`、依頼付き `--orca` は一件ごとの新しい見えるタブ。
-対話を続ける場合は明示して起動する。担当ホームの通常の新規タブでも、以下の自動起動を使える。
+対象・編集範囲・AC・実際の委任・完了条件を揃える。受領済み checkout/依頼 ID の packet は
+そこで実行し、再投入してさらに worktree を作らない。通常の割当・結果回収・統合は Banana。
+共通処理、排他、成果保持、cleanup は [project-tasks.md](references/project-tasks.md)。
+依存・統合・native Run/Task/Dispatch が必要な場合は [orca-operating-model.md](references/orca-operating-model.md)。
+モデルを変えても、実装者の独立性や権限は変わらない。
+
+## レビューの受付
 
 ```sh
-tomato --interactive --orca --cwd /Users/kamp/brain
-banana --dry-run --cwd /path/to/project --prompt-file /path/to/request.md
-peach --dry-run CAF-123 --pr owner/repo#123
+review --inbox
+review --kind acceptance --repo /absolute/checkout --issue ABC-123 --dry-run
+review --kind technical --repo /absolute/checkout --prompt-file /absolute/review.md --dry-run
+review --kind final --repo /absolute/checkout --sha <current-full-HEAD-SHA> --pr owner/repo#123 --dry-run
 ```
 
-`--dry-run` は起動設定だけを返す。モデル/Orca セッション・外部取得は行わない。
-Codex の effort は仕事に応じて `--effort low|medium|high|xhigh|max` で指定し、
-省略時は Medium。明示モデルは `--model <ID>`。
-Potato のモデルと effort は固定。Peach の既存 `--backend codex` は明示互換だけ。
-`--json` は Potato の検証済み result metadata を返す。
+種別は必須。受入確認と技術確認を両方自動起動しない。受入確認の `--pr` は拒否し、
+固定 PR の正式判定へ暗黙に昇格させない。最終判定は正式な別タスクへの引渡し計画を返す。
+最終判定の非 dry-run は exit 3（引渡し待ち）。計画をレビュー完了や PASS と扱わない。
+共通入口は新規 subagent・別タスクへの送信・署名・Ready/merge を自動実行しない。
 
-## 担当ホームの新規タブ
+この会話の concafe Owner 指示 CAF-279 を優先する。通常 Sol medium、複雑な技術作業は Sol high、
+最終独立署名 verdict は未関与の別 Codex タスク Astra high、上位判断は別 Codex タスク Astra medium。
+concafe のレビューは共通入口から汎用 Claude を起動せず、指定モデルと独立性を確認する正式経路へ返す。
+対象の契約を読み、CI・固定 SHA・署名・fail-closed・自動 Ready/guarded auto-merge・人間ゲートを維持する。
+他プロジェクトの個別依頼だけ、既存 Peach evidence pipeline / Potato の技術確認を選択できる。
+旧 `peach` / `potato` は互換コマンド。共通受付による整理を、旧 backend 実装を移行済みという意味にしない。
 
-Owner の指示により、Orca で担当ホームの通常の新規タブを開くと、その役の対話エージェントを
-入力待ちで起動する。Tomato/Banana/Kiwi/Melon は既存 Codex profile の Sol 6.1 / Medium、
-Peach/Potato は既存の Claude Opus 5.5 / High と読み取り制限を使う。
-依頼や過去のセッションを渡さず、モデルを閉じると通常の shell に戻る。
+## 新規タブと配線
 
 ```sh
 /Users/kamp/orca/agents/named-team/install.py --tab-autostart
 /Users/kamp/orca/agents/named-team/install.py --check --tab-autostart
-```
-
-`~/.zshrc` 末尾の専用 block から `shell/tab-autostart.zsh` を読む。
-対話 login zsh、`TERM_PROGRAM=Orca`、terminal handle、完全な worktree ID と
-`roles.json` の担当ホームが一致したときだけ適用する。他プロジェクトや担当ホームの
-サブディレクトリには適用しない。Orca が明示コマンドを配送する shell-ready wrapper の
-`ready` / `identity` を検出したタブでは起動せず、そのコマンドと入れ子の shell を優先する。
-同じ handle の再読込・入れ子の shell でも二重起動しない。
-既存タブの実行中プロセスには変更を加えない。新しく開くタブから適用する。
-Orca の初期コマンド検出は現在の zsh wrapper に合わせており、他の shell には未適用。
-
-Peach の対話タブは Issue の自動取得や署名レビューを開始しない。
-実レビューは引き続き `peach <ISSUE-ID>` の evidence pipeline を使う。
-concafe の正式な最終レビュー・判断の別 Codex タスク経路も維持する。
-未確認フォルダの初回確認が出ることはあり、起動引数で迂回しない。
-Codex の対話起動は `check_for_update_on_startup=false` をその回の引数だけに指定し、
-更新案内で入力待ちが止まるのを防ぐ。インストール済みのバージョンは変更しない。
-
-通常の install は shell 設定を変更しない。`--tab-autostart` は専用 block だけを追加し、
-手編集された block や別の `.zshrc` リンクは保存して変更前に中断する。
-`--uninstall` は所有する block とリンクだけを除去し、他の shell 設定を保持する。
-
-`--cwd` は対象コード、`--worktree path:<絶対パス>` は登録済みのタブ配置先。
-名前付き launcher で両方を指定した場合は path の一致を検証する。
-Peach は packet で読むため checkout を実装用 cwd にせず、`--worktree` は配置先だけを指定する。
-Orca が返す完全な worktree ID と唯一の terminal handle で追跡する。remote 環境の shell からは起動しない。
-
-## タスクと回収
-
-案件を受領して担当の作業場所を用意する共通機能は Banana を基準にする。
-編集依頼は新規 worktree、読み取り依頼は指定 checkout、既存担当の継続は明示した worktree を使う。
-各役のモデル・制限と、一件ごとの実行・回収は同じ実装を使う。
-
-```sh
-~/.agents/skills/banana/bin/task --role kiwi --repo /absolute/path/to/repo \
-  --task-id watch-fix-001 --from-role tomato --prompt-file /absolute/path/to/request.md
-kiwi --repo /absolute/path/to/repo --task-id watch-fix-001 \
-  --from-role tomato --prompt-file /absolute/path/to/request.md
-```
-
-二つは同じ共通入口へ到達する。同じ repo・依頼 ID は再実行せず、保存した結果か未確認状態を返す。
-通常の進行・回収は Banana が持ち、Tomato の単独観測基盤依頼では直接 Kiwi に渡せる。
-受領・作成の確認、役の適用、結果、統合前の保持、cleanup は [案件用タスク](references/project-tasks.md)。
-Peach の受入判定は既存の `peach <ISSUE-ID>` を使う。正式な concafe review/判断の経路も維持する。
-
-一件ごとに新しいタブを表示し、途中の出力を流す。
-結果は `~/.local/share/named-team/tasks/<role>-<id>/` の `result.txt`、`error.txt`、`finished.json` に保存する。
-Peach の正式な packet/ledger/verdict は既存の保存先に残り、Orca task の結果はその回の出力を回収する。
-Potato は実応答の session/modelUsage を確認し、5.5 以外・複数モデル・不明なら BLOCKED。
-子プロセスの終了と結果保存を確認してから、`terminal close --terminal <handle> --tab` で
-その回のタブと復元情報を永続的に除去する。モデル終了後の回収待ちは Python wrapper だけが
-最大30秒残り、モデルを待機させない。
-次のタスクを待機セッションへ追加しない。対話セッションは自動で閉じない。
-
-タブ作成の応答がタイムアウトしたら一意の title で同じタブだけを照合し、再作成・再送しない。
-タブ作成時に `--focus` は使わず、表示切替の応答をモデル起動の条件にしない。
-モデルを起動できるのは、作成応答で確認した tab と同じ `ORCA_TERMINAL_HANDLE` の worker だけ。
-応答を確認できない依頼は中止を記録し、後からタブが現れてもモデルを起動しない。
-worker は依頼単位で排他し、開始記録を一度だけ作る。開始済み・完了済み・中止済みの依頼は
-タブ復元後も再実行せず、既存の報告を上書きしない。プロセスが消えていても自動再試行しない。
-開始・保存・終了・close を確認できなければタブと結果を保持して未確認と返す。
-起動要求、タブ作成、モデル応答、完了、cleanup を別々の事実として扱う。
-rc=0 や指摘なしを独立 PASS・署名・Ready/merge と読まない。
-
-## 配線と正本
-
-```sh
-/Users/kamp/orca/agents/named-team/install.py
-/Users/kamp/orca/agents/named-team/install.py --check
-/Users/kamp/orca/agents/linear-inreview-reviewer/install.sh --check
 /Users/kamp/orca/agents/named-team/bin/start-workspaces --check
+/Users/kamp/orca/agents/named-team/bin/start-workspaces melon --check
 ```
 
-`install.py` は Tomato/Banana/Kiwi/Potato/Melon の command・skill・role profile を配線する。
-Tomato の skill 正本は独立 Git repo の `~/.claude/skills/Tomato`。
-Banana の正本は `roles/banana/skill`。従来の `~/.claude/skills/Banana` は互換リンク。
-Kiwi/Potato/Melon の正本も `roles/<name>`。Peach の配線と packet は既存 package が持つ。
-base config、trust、approval、sandbox 設定は変更しない。
-全対象を先に確認し、無関係のファイル/リンクがあれば配線前に中断する。
-`--uninstall` はこの package を指すリンクと専用の shell block だけを外す。
+`start-workspaces` の既定確認は Tomato・Banana・Review の3ホームだけ。
+Review の canonical role key は互換の `peach`。表示名は `Review｜受入・技術レビュー`、旧 Peach 名も認識する。
+専門担当を明示した確認は、その受付先と `state=on-demand` を返す。旧専門ホームの存在は不要。
+同名・別 project のカードを代替ホームにせず、候補重複・不完全な一覧・受付欠落では停止する。
+`state=ready` は受付が見つかった意味で、モデルの稼働を意味しない。
 
-`bin/start-workspaces` は六役の既存ホームを確認し、通常実行では command/profile の配線も行う。カードや待機エージェントは作成しない。
-役の起動先は `roles.json` の `workspaceRoot` で固定する。Tomato/Banana は既存の brain worktree、Peach は既存の reviewer project、Kiwi/Potato/Melon は既存の Orca 開発 worktree を担当ホームとして使う。従来の表示名も認識する。skills project はスキルを置く一つのフォルダとして維持し、役ごとのカードを置かない。
-Orca 全体の一覧を取得してホームを照合し、同じホームに複数の候補がある場合や一覧が不完全な場合は配線・起動を止める。どの役でもホームが見つからない場合は停止し、代替カードを作らない。別案件の checkout は明示した `--worktree path:<絶対パス>` で指定する。
-`--check` は既存ホームと専門担当の進行・回収先を読み取り確認し、`workspaceRoot` / `workspacePurpose=role-home` / `coordinatorWorktreeId` を返す。`state=ready` はホームが見つかったことを示し、モデルの稼働を意味しない。異なる project 間の役の上下関係は `parentRole` で管理し、同一 project 内に限られる Orca の Git ワークスペース親子関係を変更しない。
-タスク保存と dry-run の `roleRouting` に上位/専門担当・通常の回収担当・相談先を記録する。この構成は実行中セッションを変更せず、相談先への送信や判断の委任を追加で許可しない。
-Orca executable は ORCA_CLI_COMMAND、dev session、Linux、macOS の順に現行ガイドどおり選択し、別 build へ fallback しない。
-操作を行う担当はその executable の `orca-cli`、監督付き連携のときだけ `orchestration` を読む。
+所有する `.zshrc` block は `shell/tab-autostart.zsh` を読む。
+Orca の対話 login zsh、terminal handle、完全な worktree ID と exact home path が一致した場合だけ適用。
+Tomato/Banana は依頼なしの Codex 対話、Review はモデル無しの案内で shell に戻る。
+Kiwi/Melon/Potato の旧ホームやサブディレクトリでは自動起動しない。
+明示した初期コマンド、同じ handle の再読込、入れ子の shell を優先し二重起動しない。
+既存の実行中セッション・タブ・成果は変更しない。新規タブから適用する。
 
-モデルを起動する実依頼、外部投稿、automation、repo 操作の許可は現在のユーザー指示と対象契約から得る。
-この定義は追加許可ではない。
+install は所有する command/skill/profile リンクと opt-in shell block だけを扱う。
+`review` はモデル無しの CLI で、専用 model profile や追加 role/card は作らない。
+base config・trust・approval・sandbox・認証・秘密値は変更しない。別のファイル/リンクは保持し中断する。
+Tomato の skill 正本と記憶は別 repo/brain に残す。専門担当が人格・日誌を継承することはない。
 
-## concafe-techo の自動検知
+## 実行と回収
 
-Owner が指定した concafe-techo のみを対象に、Issue・PR・open PR head の CI を
-モデル無しで5分ごとに取得する。変化と担当の稼働を確認して、既存ホームで
-Banana / Tomato / Kiwi の読み取りタスクを Orca の supervised worker として起動する。
-初回の基準保存・無変化・通常の CI 進捗では起動しない。
-計画、配送・排他・回収、運用と検知の限界は [event-monitor.md](references/event-monitor.md)。
+依頼付きの通常起動は一件ごとの見える実行タブ。手動対話の継続は `--interactive --orca` を明示する。
+`--dry-run` は起動設定/経路計画のみで、Orca/model/サービス/state を変更しない。
+Sol の通常 effort は medium、用途別は [sol-effort.md](references/sol-effort.md)。
+モデル/provider の自動 fallback、Git/trust/permission の迂回はしない。
+
+結果は private な `~/.local/share/named-team/tasks/` / `projects/` に保存する。
+同じ依頼 ID は排他・開始記録で再実行を防ぐ。不明な作成/起動を再送しない。
+子プロセス終了と結果保存を確認して、その回の owned terminal だけを閉じる。
+変更・未統合 commit・ignored file・他担当の terminal を持つ worktree は保持する。
+回収と製品の完了、実装テストと独立 verdict を区別する。
+
+## concafe の自動検知
+
+対象は Owner が指定した concafe-techo のみ。Issue/PR/CI をモデル無しで取得・比較する。
+通常変化と取得障害/回復は Banana、相談分類は Tomato。Kiwi は基盤修正の明示依頼時だけ使う。
+旧 pending Kiwi の履歴は保持し、Banana と同じ受付で未完了/unknown batch があれば次を起動しない。
+初回基準・無変化・通常 CI 進捗ではモデルを起動しない。
+
+監視ソースを更新しても、稼働中 coordinator が読み込んだコードは自動では変わらない。
+この整理では live DB、automation、監視プロセス、CI supervisor を変更・再起動しない。
+旧導入記録と保存・排他・回収の契約は [event-monitor.md](references/event-monitor.md)。
