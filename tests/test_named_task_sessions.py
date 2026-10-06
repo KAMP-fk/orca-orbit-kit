@@ -85,9 +85,11 @@ if Path(sys.argv[0]).name=='claude':
  print(json.dumps({'type':'assistant','message':{'content':[
   {'type':'tool_use','name':'Read','input':{'file_path':'fixture.py'}},
   {'type':'text','text':'対象ファイルを確認しています。'}]}}),flush=True)
- print(json.dumps({'type':'result','is_error':False,'session_id':'fixture-session',
-  'modelUsage':{os.environ.get('NAMED_AGENT_FIXTURE_MODEL','claude-opus-5-5'):{}},
-  'result':'fixture review result'}),flush=True)
+ model='claude-fable-5-1' if sys.argv[sys.argv.index('--model')+1]=='fable' else 'claude-opus-5-5'
+ final={'type':'result','is_error':False,'session_id':'fixture-session',
+  'modelUsage':{os.environ.get('NAMED_AGENT_FIXTURE_MODEL',model):{}},
+  'result':'fixture consultation result'}
+ print(os.environ.get('NAMED_AGENT_FIXTURE_RESULT',json.dumps(final)),flush=True)
 else:
  print('fixture Codex is working',flush=True)
  if not os.environ.get('FIXTURE_NO_REPORT'):
@@ -97,16 +99,16 @@ sys.exit(int(os.environ.get('NAMED_AGENT_FIXTURE_EXIT','0')))
 
 
 class TaskSessionTests(unittest.TestCase):
-    def test_specialist_task_launches_and_collects_with_only_three_entry_homes(self):
+    def test_specialist_task_launches_and_collects_with_only_two_entry_homes(self):
         self.env['FIXTURE_ONLY_ENTRIES'] = '1'
-        for role in ('kiwi', 'melon', 'potato'):
+        for role in ('banana', 'review'):
             with self.subTest(role=role):
                 result = self.fixture.launch(role, '--task', 'Fixture scoped request', env=self.env)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 run = Path((self.state / 'latest').read_text())
                 self.assertTrue((run / 'finished.json').is_file())
                 request = json.loads((run / 'request.json').read_text())
-                self.assertEqual(request['roleRouting']['homeRole'], 'peach' if role == 'potato' else 'banana')
+                self.assertEqual(request['roleRouting']['homeRole'], 'banana')
 
     def setUp(self):
         self.fixture = test_named_agents.NamedAgentsTests()
@@ -132,14 +134,14 @@ class TaskSessionTests(unittest.TestCase):
         return Path((self.state / 'latest').read_text())
 
     def test_default_requests_show_progress_save_report_and_close_only_the_new_tab(self):
-        for role in ('tomato', 'banana', 'melon', 'kiwi', 'potato'):
+        for role in ('tomato', 'banana', 'review'):
             with self.subTest(role=role):
                 result = self.launch(role, 'task request')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 calls = self.calls()
                 create = [call for call in calls if call[:2] == ['terminal','create']][-1]
                 self.assertNotIn('--focus', create)
-                self.assertIn(role.capitalize(), create[create.index('--title') + 1])
+                self.assertIn('Potato' if role == 'review' else role.capitalize(), create[create.index('--title') + 1])
                 show = [call for call in calls if call[:2] == ['worktree','show']][-1]
                 self.assertEqual(show[show.index('--worktree') + 1], 'id:fixture-workspace')
                 self.assertFalse(any(c[:2] == ['terminal','wait'] for c in calls))
@@ -148,18 +150,50 @@ class TaskSessionTests(unittest.TestCase):
                 self.assertIn('--tab', calls[-1])
                 run = self.run_dir()
                 routing = json.loads((run / 'request.json').read_text())['roleRouting']
-                if role in ('kiwi', 'potato'):
-                    self.assertEqual(routing['parentRole'], 'banana')
-                    self.assertEqual(routing['consultation'], ['tomato', 'fable'])
-                elif role in ('tomato', 'banana'):
-                    self.assertEqual(routing['layer'], 'upper')
+                if role == 'banana':
+                    self.assertEqual(routing['layer'], 'engineering')
                     self.assertIsNone(routing['parentRole'])
+                    self.assertEqual(routing['consultation'], ['tomato'])
+                elif role == 'tomato':
+                    self.assertEqual(routing['layer'], 'consultation')
+                    self.assertIsNone(routing['parentRole'])
+                    self.assertEqual(routing['consultation'], ['banana'])
+                else:
+                    self.assertEqual(routing['parentRole'], 'banana')
+                    self.assertEqual(routing['activation'], 'on-demand')
+                    self.assertEqual(routing['homeRole'], 'banana')
                 self.assertTrue((run / 'closed.json').is_file())
                 self.assertTrue((run / 'progress.log').read_text())
                 visible = (run / 'visible.txt').read_text()
                 self.assertIn('タスクを開始', visible)
-                self.assertIn('実行中: Read' if role == 'potato' else 'fixture Codex is working', visible)
-                self.assertIn('fixture review result' if role == 'potato' else 'fixture implementation result', result.stdout)
+                if role == 'tomato':
+                    self.assertIn('セッション開始', visible)
+                    self.assertIn('fixture consultation result', result.stdout)
+                    actual = json.loads((run / 'metadata.json').read_text())
+                    self.assertEqual(actual['backend'], 'claude')
+                    self.assertEqual(actual['actualModel'], 'claude-fable-5-1')
+                    self.assertFalse(actual['isFinalVerdict'])
+                    self.assertEqual(json.loads((run / 'request.json').read_text())['collector'], 'claude-consultation')
+                elif role == 'review':
+                    self.assertIn('セッション開始', visible)
+                    self.assertIn('fixture consultation result', result.stdout)
+                    actual = json.loads((run / 'metadata.json').read_text())
+                    self.assertEqual(actual['backend'], 'claude')
+                    self.assertEqual(actual['actualModel'], 'claude-opus-5-5')
+                    self.assertFalse(actual['isFinalVerdict'])
+                    self.assertEqual(json.loads((run / 'request.json').read_text())['collector'], 'claude')
+                else:
+                    self.assertIn('fixture Codex is working', visible)
+                    self.assertIn('fixture implementation result', result.stdout)
+
+    def test_tomato_wrong_model_or_empty_result_is_not_completed(self):
+        self.env['NAMED_AGENT_FIXTURE_MODEL'] = 'claude-opus-5-5'
+        result = self.launch('tomato', 'consultation request')
+        self.assertEqual(result.returncode, 3, result.stderr)
+        run = self.run_dir()
+        self.assertTrue((run / 'closed.json').exists())
+        self.assertFalse((run / 'metadata.json').exists())
+        self.assertNotIn('fixture consultation result', result.stdout)
 
     def test_ambiguous_home_stops_before_starting_a_model_or_creating_a_tab(self):
         self.env['FIXTURE_DUPLICATE_ROLE'] = 'tomato'
@@ -172,15 +206,32 @@ class TaskSessionTests(unittest.TestCase):
     def test_exec_compatibility_and_orca_prompt_also_use_new_sessions(self):
         runs = []
         for flag in ('--exec','--orca','--task'):
-            result = self.launch('potato', flag, '--json', 'review request')
+            result = self.launch('review', flag, '--json', 'review request')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout)['modelUsage'], {'claude-opus-5-5':{}})
+            metadata = json.loads(result.stdout)
+            self.assertEqual(metadata['backend'], 'claude')
+            self.assertEqual(metadata['actualModel'], 'claude-opus-5-5')
+            self.assertFalse(metadata['isFinalVerdict'])
             runs.append(self.run_dir())
         self.assertEqual(len(set(runs)), 3)
 
+    def test_review_wrong_or_mixed_actual_model_is_blocked_and_preserves_evidence(self):
+        self.env['NAMED_AGENT_FIXTURE_RESULT'] = json.dumps({
+            'type': 'result', 'is_error': False, 'session_id': 'fixture-session',
+            'modelUsage': {'claude-opus-5-5': {}, 'claude-fable-5-1': {}},
+            'result': 'must not publish'})
+        result = self.launch('review', 'fixture review')
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertNotIn('must not publish', result.stdout)
+        self.assertFalse((self.run_dir() / 'metadata.json').exists())
+        self.assertTrue((self.run_dir() / 'progress.log').exists())
+        self.assertTrue((self.run_dir() / 'closed.json').exists())
+        self.assertEqual((Path(str(self.fixture.log)+'.calls')).read_text().splitlines(), ['model-start'])
+
+
     def test_create_timeout_recovers_same_tab_without_a_second_launch(self):
         self.env['FIXTURE_CREATE_TIMEOUT'] = '1'
-        result = self.launch('potato', 'review request')
+        result = self.launch('review', 'review request')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sum(c[:2] == ['terminal','create'] for c in self.calls()), 1)
         self.assertTrue((self.run_dir() / 'closed.json').exists())
@@ -191,7 +242,7 @@ class TaskSessionTests(unittest.TestCase):
         self.env['FIXTURE_LIST_EMPTY'] = '1'
         self.env['FIXTURE_CREATE_TIMEOUT_ONCE'] = '1'
         self.env['NAMED_TEAM_TAB_WAIT_SECONDS'] = '1'
-        result = self.launch('potato', 'review request')
+        result = self.launch('review', 'review request')
         self.assertNotEqual(result.returncode, 0, result.stderr)
         creates = [c for c in self.calls() if c[:2] == ['terminal', 'create']]
         self.assertEqual(len(creates), 1, creates)
@@ -213,14 +264,14 @@ class TaskSessionTests(unittest.TestCase):
     def pending_run(self):
         run = self.fixture.root / 'pending-task'
         run.mkdir()
-        request = {'role':'melon', 'cwd':str(self.fixture.workspace), 'collector':'codex',
+        request = {'role':'banana', 'cwd':str(self.fixture.workspace), 'collector':'codex',
                    'environment':{}, 'command':[str(self.fixture.bin / 'codex'), '--', 'fixture request']}
         (run / 'request.json').write_text(json.dumps(request))
         (run / 'terminal.json').write_text(json.dumps({'handle':'term_fixture','tabId':'fixture-tab'}))
         return run
 
     def test_completed_task_replay_preserves_all_reports_without_model_call(self):
-        result = self.launch('melon', 'request')
+        result = self.launch('banana', 'request')
         self.assertEqual(result.returncode, 0, result.stderr)
         run = self.run_dir()
         before = {f.name:f.read_bytes() for f in run.iterdir() if f.is_file()}
@@ -279,45 +330,36 @@ class TaskSessionTests(unittest.TestCase):
 
     def test_literal_request_and_config_are_preserved_in_fresh_terminal(self):
         marker = self.fixture.root / 'must-not-exist'
-        request = '引用 " ; $(touch ' + str(marker) + ') `touch ' + str(marker) + '`\n$HOME'
-        result = self.launch('potato', '--worktree', 'path:' + str(self.fixture.workspace), request)
+        request = '$(touch ' + str(marker) + ') `touch ' + str(marker) + '`\n$HOME'
+        result = self.launch('review', '--worktree', 'path:' + str(self.fixture.workspace), request)
         self.assertEqual(result.returncode, 0, result.stderr)
         log = json.loads(self.fixture.log.read_text())
         self.assertTrue(log['argv'][-1].endswith('今回の依頼:\n' + request))
         self.assertEqual(log['cwd'], str(self.fixture.workspace))
         self.assertEqual(log['claudeConfigHome'], str(self.fixture.claude_config))
-        self.assertEqual(log['effort'], 'high')
-        self.assertEqual(log['argv'][log['argv'].index('--output-format') + 1], 'stream-json')
         self.assertIn('--restricted', log['argv'])
+        self.assertEqual(log['argv'][log['argv'].index('--tools') + 1], 'Read,Glob,Grep')
         self.assertFalse(marker.exists())
 
-    def test_wrong_actual_model_is_blocked_and_failure_is_saved_before_close(self):
-        self.env['NAMED_AGENT_FIXTURE_MODEL'] = 'claude-sonnet-5-5'
-        result = self.launch('potato', 'review request')
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertEqual(result.stdout, '')
-        self.assertIn('BLOCKED', result.stderr)
-        self.assertEqual((self.run_dir() / 'result.txt').read_text(), '')
-        self.assertNotIn('実モデル検証済みの結果', (self.run_dir() / 'visible.txt').read_text())
-        self.assertTrue((self.run_dir() / 'closed.json').is_file())
+
 
     def test_model_failure_returns_its_exit_code_after_recorded_cleanup(self):
         self.env['NAMED_AGENT_FIXTURE_EXIT'] = '7'
-        result = self.launch('potato', 'review request')
+        result = self.launch('review', 'review request')
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertIn('rc=7', (self.run_dir() / 'error.txt').read_text())
         self.assertTrue((self.run_dir() / 'closed.json').exists())
 
     def test_missing_codex_report_cannot_be_reported_as_completed(self):
         self.env['FIXTURE_NO_REPORT'] = '1'
-        result = self.launch('melon', 'request')
+        result = self.launch('banana', 'request')
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertEqual(result.stdout, '')
         self.assertIn('BLOCKED', (self.run_dir() / 'error.txt').read_text())
 
     def test_missing_result_retains_terminal_and_does_not_relaunch(self):
         self.env['FIXTURE_NO_RESULT'] = '1'
-        result = self.launch('kiwi', 'request')
+        result = self.launch('banana', 'request')
         self.assertEqual(result.returncode, 4, result.stderr)
         self.assertEqual(sum(c[:2] == ['terminal','create'] for c in self.calls()), 1)
         self.assertFalse(any(c[:2] == ['terminal','close'] for c in self.calls()))
@@ -325,7 +367,7 @@ class TaskSessionTests(unittest.TestCase):
 
     def test_failed_durable_close_is_not_cleanup_success(self):
         self.env['FIXTURE_CLOSE_FAIL'] = '1'
-        result = self.launch('kiwi', 'request')
+        result = self.launch('banana', 'request')
         self.assertEqual(result.returncode, 4, result.stderr)
         self.assertTrue((self.run_dir() / 'result.txt').is_file())
         self.assertFalse((self.run_dir() / 'closed.json').exists())

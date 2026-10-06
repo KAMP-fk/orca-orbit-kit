@@ -6,9 +6,9 @@
 !/HANDOFF-agents-git-20261002.md
 !/agents/
 /agents/*
-!/agents/linear-inreview-reviewer/
-!/agents/review-relay/
-!/agents/named-team/
+!/agents/team/
+# Tomato remains a separate repository, including its existing Git history.
+/agents/team/roles/tomato/skill/
 !/tests/
 
 # Runtime evidence, local verification output, and backups never enter history.

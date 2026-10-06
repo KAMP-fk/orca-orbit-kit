@@ -333,7 +333,7 @@ class EvidenceCase(unittest.TestCase):
         self.assert_blocked(self.review(), model_expected=True)
 
     def test_report_invalid_fields_and_unmet_criteria_are_rejected(self):
-        report = 'Issue: CAF-999 Offline fixture\n\nVerdict: PASS\n\nSummary:\nfixture\n\nAcceptance Criteria:\n\n* [x] fixture\n\nFindings:\n\n* なし\n\nRequired Changes:\n\n* なし\n\nVerification:\n\n* PR: https://github.com/test/repo/pull/1\n* Commit: ' + SHA + '\n* CI: PASS\n* Tests: PASS\n'
+        report = 'Issue: CAF-999 Offline fixture\n\nVerdict: PASS\n\nSummary:\nfixture\n\nAcceptance Criteria:\n\n* [x] fixture\n\nFindings:\n\n* なし\n\nRequired Changes:\n\n* なし\n\nVerification:\n\n* PR: https://github.com/test/repo/pull/1\n* Commit: ' + SHA + '\n* CI: PASS\n* Tests: PASS\n* Reviewer: fixture-reviewer\n* Involvement: NOT_INVOLVED\n* Review Mode: fixed-pr\n'
         for malformed in (report.replace('CAF-999', 'CAF-998'), report.replace('test/repo/pull/1', 'test/repo/pull/2'), report.replace('* CI: PASS', '* CI: UNKNOWN'), report.replace('* Tests: PASS', '* Tests: PASS\n* Tests: UNKNOWN'), report.replace('* [x]', '* [?]'), report.replace('* [x]', '* [ ]'), report.replace('Verdict: PASS', 'Verdict: PASS | BLOCKED')):
             with self.subTest(report=malformed):
                 self.config['report'] = malformed

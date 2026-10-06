@@ -1,4 +1,4 @@
-"""Orca role routing and Peach task checks; no hosted/model calls."""
+"""Orca role routing and acceptance task checks; no hosted/model calls."""
 import contextlib
 import copy
 import importlib.util
@@ -13,7 +13,7 @@ from unittest import mock
 
 import test_named_task_sessions
 
-PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
+PACKAGE = Path(__file__).resolve().parents[1] / 'agents/team'
 sys.path.insert(0, str(PACKAGE / 'lib'))
 import role_contract
 import task_session
@@ -21,11 +21,13 @@ import task_session
 
 class RoutingTests(unittest.TestCase):
     def test_invalid_routing_blocks_before_workspace_resolution_or_launch(self):
-        cases = [('missing-home', lambda roles: roles['kiwi'].update(homeRole='missing')),
-                 ('specialist-home', lambda roles: roles['kiwi'].update(homeRole='melon')),
-                 ('idle-specialist', lambda roles: roles['kiwi'].update(tabAutostart=True)),
-                 ('coordinator-cycle', lambda roles: roles['banana'].update(parentRole='kiwi')),
-                 ('duplicate-home', lambda roles: roles['banana'].update(workspaceRoot=roles['tomato']['workspaceRoot']))]
+        cases = [('missing-home', lambda roles: roles['review'].update(homeRole='missing')),
+                 ('specialist-home', lambda roles: roles['review'].update(homeRole='review')),
+                 ('idle-specialist', lambda roles: roles['review'].update(tabAutostart=True)),
+                 ('coordinator-cycle', lambda roles: roles['banana'].update(parentRole='review')),
+                 ('duplicate-home', lambda roles: roles['banana'].update(workspaceRoot=roles['tomato']['workspaceRoot'])),
+                 ('duplicate-public-name', lambda roles: roles['review'].update(publicName='banana')),
+                 ('unsafe-public-name', lambda roles: roles['review'].update(publicName='../potato'))]
         for name, mutate in cases:
             with self.subTest(name=name):
                 roles = copy.deepcopy(role_contract.ROLES)
@@ -66,17 +68,17 @@ class RoutingTests(unittest.TestCase):
              mock.patch.object(module.subprocess, 'run', side_effect=invoke), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             module.main()
-        self.assertEqual(len(output.getvalue().splitlines()), 3)
+        self.assertEqual(len(output.getvalue().splitlines()), 2)
         self.assertTrue(all(call[0] == '/fixture/orca' for call in calls))
 
 
-class PeachTaskTests(unittest.TestCase):
+class AcceptanceTaskTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_named_task_sessions.TaskSessionTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.env = self.fixture.env
-        self.reviewer = PACKAGE.parent / 'linear-inreview-reviewer/bin/linear-inreview-reviewer'
+        self.reviewer = PACKAGE / 'roles/potato/acceptance/bin/linear-inreview-reviewer'
 
     def preview(self, *args):
         return subprocess.run([str(self.reviewer), '--dry-run', *args], env=self.env,
@@ -87,9 +89,18 @@ class PeachTaskTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(result.stdout)
         self.assertEqual(data['argv'], [str(self.reviewer), 'CAF-123', '--pr', 'owner/repo#123',
-                                        '--test-check', 'CI / unit tests'])
+                                        '--test-check', 'CI / unit tests', '--backend', 'claude'])
+        self.assertEqual(data['requestedModel'], 'claude-opus-5-5')
+        self.assertEqual(data['requestedEffort'], 'high')
         self.assertEqual(data['taskWorkspace'], None)
+        self.assertEqual(data['roleWorkspaceRoot'], str(role_contract.workspace_root('banana')))
         self.assertFalse(data['startsSession'])
+        self.assertFalse(self.fixture.fixture.log.exists())
+        self.assertFalse(self.fixture.state.exists())
+
+    def test_wrapper_rejects_codex_before_creating_a_task(self):
+        result = self.preview('CAF-123', '--backend', 'codex')
+        self.assertEqual(result.returncode, 2, result.stderr)
         self.assertFalse(self.fixture.fixture.log.exists())
         self.assertFalse(self.fixture.state.exists())
 
@@ -108,7 +119,7 @@ class PeachTaskTests(unittest.TestCase):
                 command = [sys.executable, '-c', "print('Issue: CAF-123\\nVerdict: ' + " +
                            repr({0: 'PASS', 1: 'CHANGES_REQUIRED', 3: 'BLOCKED'}[rc]) +
                            "); raise SystemExit(" + str(rc) + ")"]
-                actual = task_session.launch_task('peach', command, self.fixture.fixture.workspace,
+                actual = task_session.launch_task('review', command, self.fixture.fixture.workspace,
                                                   {}, self.env['ORCA_CLI_COMMAND'], collector='stdout')
                 self.assertEqual(actual, rc)
                 run = self.fixture.run_dir()
@@ -120,7 +131,7 @@ class PeachTaskTests(unittest.TestCase):
     def test_missing_final_report_is_blocked_and_not_returned_as_success(self):
         with mock.patch.dict(os.environ, self.env, clear=True), \
              contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
-            actual = task_session.launch_task('peach', [sys.executable, '-c', "print('partial progress')"],
+            actual = task_session.launch_task('review', [sys.executable, '-c', "print('partial progress')"],
                                               self.fixture.fixture.workspace, {},
                                               self.env['ORCA_CLI_COMMAND'], collector='stdout')
         self.assertEqual(actual, 3)
@@ -131,7 +142,7 @@ class PeachTaskTests(unittest.TestCase):
         command = [sys.executable, '-c', "print('Issue: CAF-123\\nVerdict: PASS\\n\\nIssue: CAF-123\\nVerdict: BLOCKED'); raise SystemExit(3)"]
         with mock.patch.dict(os.environ, self.env, clear=True), \
              contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
-            actual = task_session.launch_task('peach', command, self.fixture.fixture.workspace,
+            actual = task_session.launch_task('review', command, self.fixture.fixture.workspace,
                                               {}, self.env['ORCA_CLI_COMMAND'], collector='stdout')
         self.assertEqual(actual, 3)
         self.assertNotIn('Verdict: PASS', output.getvalue())

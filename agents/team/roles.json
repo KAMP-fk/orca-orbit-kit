@@ -1,0 +1,74 @@
+{
+  "tomato": {
+    "layer": "consultation",
+    "parentRole": null,
+    "consultation": [
+      "banana"
+    ],
+    "workspace": "Tomato｜相談・受け渡し",
+    "workspaceRoot": "~/orca/workspaces/brain/Tomato",
+    "workspaceAliases": [
+      "Tomato｜相談・判断・仕事の受け渡し"
+    ],
+    "backend": "claude",
+    "model": "fable",
+    "effort": "medium",
+    "profile": "roles/tomato/claude/settings.json",
+    "instructions": "roles/tomato/claude/instructions.md",
+    "observationBackend": "codex",
+    "observationProfile": "roles/tomato/codex/profile.config.toml",
+    "skill": "roles/tomato/skill",
+    "activation": "home",
+    "homeRole": "tomato",
+    "tabAutostart": true
+  },
+  "banana": {
+    "layer": "engineering",
+    "parentRole": null,
+    "consultation": [
+      "tomato"
+    ],
+    "workspace": "Banana｜開発・Devin窓口",
+    "workspaceRoot": "~/orca/workspaces/brain/Banana",
+    "workspaceAliases": [
+      "旧Banana｜既存実行・履歴",
+      "Banana｜技術判断・実装・後片付け",
+      "Banana｜開発・レビュー取りまとめ"
+    ],
+    "backend": "codex",
+    "effort": "medium",
+    "skill": "roles/banana/skill",
+    "activation": "home",
+    "homeRole": "banana",
+    "tabAutostart": true,
+    "access": "edit",
+    "entrypoint": "banana",
+    "implementationBackend": "devin"
+  },
+  "review": {
+    "publicName": "potato",
+    "layer": "specialist",
+    "parentRole": "banana",
+    "consultation": [
+      "banana",
+      "tomato"
+    ],
+    "workspace": "Potato｜受入・技術レビュー",
+    "workspaceRoot": "~/.local/share/named-team/entries/potato",
+    "workspaceAliases": [
+      "Review｜受入・技術レビュー",
+      "Peach｜Issue の受入判定",
+      "Peach｜Linear In Review のレビュー"
+    ],
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "skill": "roles/potato/skill",
+    "activation": "on-demand",
+    "homeRole": "banana",
+    "tabAutostart": false,
+    "entrypoint": "potato",
+    "profile": "roles/potato/acceptance/claude/settings.json",
+    "instructions": "roles/potato/skill/SKILL.md"
+  }
+}

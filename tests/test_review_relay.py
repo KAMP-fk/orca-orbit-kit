@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 
-RELAY = Path(__file__).resolve().parents[1] / 'agents/review-relay/bin/review-relay'
+RELAY = Path(__file__).resolve().parents[1] / 'agents/team/roles/potato/relay/bin/review-relay'
 SHA = 'a' * 40
 FIXTURE_CLI = r'''
 import json
@@ -72,7 +72,10 @@ class RelayCase(unittest.TestCase):
         self.record = self.root / 'record.md'
         self.verdict = self.root / 'verdict.md'
         self.verdict.write_text('Verdict: PASS\nhead SHA: ' + SHA + '\nReviewer: uninvolved\n')
-        self.record.write_text(self.verdict.read_text())
+        self.identities = ('- 実装担当識別子: fixture-implementation\n'
+                           '- レビュー担当識別子: fixture-independent-review\n'
+                           '- 確認した full SHA: ' + SHA + '\n')
+        self.record.write_text(self.verdict.read_text() + self.identities)
         self.config = {}
 
     def run_relay(self, *args, record=None):
@@ -89,7 +92,7 @@ class RelayCase(unittest.TestCase):
         return [c for c in self.calls() if c[:4] == ['gh', 'api', '--method', 'POST']]
 
     def audit(self):
-        logs = list((self.root / 'home/orca/agents/review-relay/log').glob('*.md'))
+        logs = list((self.root / 'home/orca/agents/team/roles/potato/relay/log').glob('*.md'))
         return ''.join(p.read_text() for p in logs)
 
     def assert_launcher(self, audit):
@@ -219,6 +222,19 @@ class RelayCase(unittest.TestCase):
         self.assert_launcher(audit)
         self.assertIn('parent=', audit)
         self.assertIn('- posted : review:passed success', audit)
+
+    def test_missing_identity_line_blocks_before_model_and_status_post(self):
+        lines = self.identities.splitlines(keepends=True)
+        for missing in lines:
+            with self.subTest(missing=missing):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.record.write_text(self.verdict.read_text() + ''.join(line for line in lines if line != missing))
+                result = self.run_relay()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn('CAF-308 の行が無い', result.stderr)
+                self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+                self.assertEqual(self.posts(), [])
+                self.assertEqual(self.audit(), '')
 
 
 if __name__ == '__main__':

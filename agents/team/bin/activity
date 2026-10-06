@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Show changes in Orca agents and Devin receipts without starting any work."""
+import argparse
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+from activity import render, snapshot
+from role_contract import local_orca_only
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--once', action='store_true')
+    parser.add_argument('--json', action='store_true', help='One read-only snapshot')
+    parser.add_argument('--screen', action='store_true', help='端末の同じ画面を更新して最新状況だけを表示')
+    parser.add_argument('--interval', type=float, default=10)
+    parser.add_argument('--observe-devin', action='store_true', help='Read observe receipts when adapters are configured')
+    parser.add_argument('--config', type=Path, default=os.environ.get('NAMED_TEAM_DEVIN_CONFIG', ROOT / 'config/devin.json'))
+    parser.add_argument('--state-root', type=Path, default=os.environ.get('NAMED_TEAM_DEVIN_STATE_DIR', Path.home() / '.local/share/named-team/devin'))
+    parser.add_argument('--project-root', type=Path, default=os.environ.get('NAMED_TEAM_PROJECT_TASK_DIR', Path.home() / '.local/share/named-team/projects'))
+    args = parser.parse_args()
+    if args.interval < 2:
+        parser.error('interval must be at least 2 seconds')
+    local_orca_only()
+    previous, last_print = None, 0
+    while True:
+        try:
+            value = snapshot(args.config, args.state_root, args.project_root, args.observe_devin)
+            output = json.dumps(value, ensure_ascii=False, sort_keys=True) if args.json else render(value)
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            output = '観測失敗・未確認。設定または記録を確認してください。'
+            if args.once or args.json:
+                print(output, file=sys.stderr)
+                return 3
+        now = time.monotonic()
+        if output != previous or now - last_print >= 60:
+            if not args.json:
+                if args.screen and sys.stdout.isatty():
+                    sys.stdout.write('\x1b[2J\x1b[H')
+                print('\n[' + datetime.now().astimezone().isoformat(timespec='seconds') + '] 観測', flush=True)
+            print(output, flush=True)
+            previous, last_print = output, now
+        if args.once or args.json:
+            return 0
+        time.sleep(args.interval)
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(0)

@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
+PACKAGE = Path(__file__).resolve().parents[1] / 'agents/team'
 spec = importlib.util.spec_from_file_location('workspace_contract', PACKAGE / 'lib/role_contract.py')
 contract = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(contract)
@@ -24,7 +24,7 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_old_titles_select_original_brain_and_reviewer_homes(self):
         snapshot = self.snapshot()
-        for role in ('tomato', 'banana', 'peach'):
+        for role in ('tomato', 'banana'):
             self.assertEqual(contract.find_workspace(role, snapshot)['id'], role + '-existing')
 
     def test_same_role_name_in_another_project_does_not_change_the_home(self):
@@ -36,7 +36,7 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_old_skills_cards_never_replace_existing_orca_homes(self):
         snapshot = self.snapshot()
-        for role in ('kiwi', 'potato', 'melon'):
+        for role in ('review',):
             snapshot['worktrees'].insert(0, {'id': role + '-old-skills',
                                             'path': str(Path.home() / '.agents/skills'),
                                             'displayName': contract.NAMES[role]})
@@ -92,14 +92,14 @@ print(json.dumps({'ok':True,'result':result}))
         self.assertEqual({json.loads(line)['worktreeId'] for line in result.stdout.splitlines()},
                          {role + '-existing' for role in contract.HOME_ROLES})
         self.assertEqual(calls[0][:2], ['worktree', 'list'])
-        self.assertEqual(len(calls), 4)
+        self.assertEqual(len(calls), 3)
         self.assertTrue(all(call[:2] == ['terminal', 'list'] for call in calls[1:]))
 
     def test_specialists_need_only_their_entry_not_an_extra_home(self):
         snapshot = self.snapshot()
         snapshot['worktrees'] = [row for row in snapshot['worktrees']
                                  if row['id'].split('-')[0] in contract.HOME_ROLES]
-        for role in ('kiwi', 'potato', 'melon'):
+        for role in ('review',):
             result, calls = self.startup(snapshot, role, '--check')
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
@@ -127,26 +127,41 @@ print(json.dumps({'ok':True,'result':result}))
 
     def test_coordination_preserves_existing_native_git_lineage(self):
         snapshot = self.snapshot()
-        next(row for row in snapshot['worktrees'] if row['id'] == 'peach-existing')['parentWorktreeId'] = 'existing-git-parent'
+        next(row for row in snapshot['worktrees'] if row['id'] == 'banana-existing')['parentWorktreeId'] = 'existing-git-parent'
         result, calls = self.startup(snapshot, '--check')
         self.assertEqual(result.returncode, 0, result.stderr)
         reports = {row['role']:row for row in map(json.loads, result.stdout.splitlines())}
         self.assertEqual(set(reports), set(contract.HOME_ROLES))
-        self.assertEqual(reports['peach']['coordinatorWorktreeId'], 'banana-existing')
-        self.assertEqual(reports['peach']['orcaParentWorktreeId'], 'existing-git-parent')
-        self.assertIsNone(reports['tomato']['coordinatorWorktreeId'])
         self.assertIsNone(reports['banana']['coordinatorWorktreeId'])
-        result, calls = self.startup(snapshot, 'melon', '--check')
-        melon = json.loads(result.stdout)
-        self.assertEqual(melon['parentRole'], 'banana')
-        self.assertEqual(melon['coordinatorWorktreeId'], 'banana-existing')
-        self.assertEqual(melon['consultation'], ['tomato', 'fable'])
+        self.assertEqual(reports['banana']['orcaParentWorktreeId'], 'existing-git-parent')
+        self.assertIsNone(reports['tomato']['coordinatorWorktreeId'])
+        self.assertIsNone(reports['banana']['parentRole'])
+        self.assertEqual(reports['banana']['consultation'], ['tomato'])
+        self.assertEqual(reports['tomato']['consultation'], ['banana'])
+        result, calls = self.startup(snapshot, 'review', '--check')
+        maintenance = json.loads(result.stdout)
+        self.assertEqual(maintenance['parentRole'], 'banana')
+        self.assertEqual(maintenance['coordinatorWorktreeId'], 'banana-existing')
+        self.assertEqual(maintenance['consultation'], ['banana', 'tomato'])
         self.assertTrue(all(call[:2] in (['worktree','list'], ['terminal','list']) for call in calls))
+
+    def test_each_permanent_entry_works_without_the_other_domain_home(self):
+        for role in contract.HOME_ROLES:
+            with self.subTest(role=role):
+                snapshot = self.snapshot()
+                snapshot['worktrees'] = [row for row in snapshot['worktrees']
+                                         if row['id'] == role + '-existing']
+                result, calls = self.startup(snapshot, role, '--check')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report = json.loads(result.stdout)
+                self.assertIsNone(report['parentRole'])
+                self.assertIsNone(report['coordinatorWorktreeId'])
+                self.assertEqual([call[:2] for call in calls], [['worktree','list'], ['terminal','list']])
 
     def test_missing_coordinator_is_detected_before_creating_or_mutating_a_card(self):
         snapshot = self.snapshot()
         snapshot['worktrees'] = [row for row in snapshot['worktrees'] if row['id'] != 'banana-existing']
-        result, calls = self.startup(snapshot, 'kiwi')
+        result, calls = self.startup(snapshot, 'review')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Missing role home: banana', result.stderr)
         self.assertEqual([call[:2] for call in calls], [['worktree','list']])

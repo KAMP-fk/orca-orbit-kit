@@ -1,4 +1,4 @@
-"""Three-entry review routing with local Git fixtures and zero model calls."""
+"""Unified review routing with local Git fixtures and zero model calls."""
 import json
 import os
 from pathlib import Path
@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
+PACKAGE = Path(__file__).resolve().parents[1] / 'agents/team'
 sys.path.insert(0, str(PACKAGE / 'lib'))
 import review_routing
 import project_identity
@@ -39,26 +39,42 @@ class ReviewEntryTests(unittest.TestCase):
 
     def cli(self, *args):
         env = {k: v for k, v in os.environ.items() if k not in ('ORCA_ENVIRONMENT', 'ORCA_PAIRING_CODE')}
-        return subprocess.run([sys.executable, str(PACKAGE / 'bin/review'), *args],
+        return subprocess.run([sys.executable, str(PACKAGE / 'bin/potato'), *args],
                               text=True, capture_output=True, env=env, timeout=15)
 
     def test_inbox_needs_no_backend_and_cannot_carry_a_request(self):
         result = self.cli('--inbox')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('--kind technical', result.stdout)
+        self.assertIn('Potato｜', result.stdout)
         self.assertNotEqual(self.cli('--inbox', '--kind', 'technical').returncode, 0)
+
+    def test_old_review_command_is_the_same_potato_route_without_a_session(self):
+        args = ['--kind', 'technical', '--repo', str(self.repo), '--prompt-file', str(self.prompt), '--dry-run']
+        current = self.cli(*args)
+        old = subprocess.run([sys.executable, str(PACKAGE / 'bin/review'), *args],
+                             text=True, capture_output=True, timeout=15)
+        self.assertEqual(current.returncode, 0, current.stderr)
+        self.assertEqual(old.returncode, 0, old.stderr)
+        plan = json.loads(current.stdout)
+        self.assertEqual(plan, json.loads(old.stdout))
+        self.assertEqual(plan['entrypoint'], 'potato')
+        self.assertEqual(plan['displayName'], 'Potato')
+        self.assertEqual(plan['executorRole'], 'review')
+        self.assertFalse(plan['startsSession'])
+        self.assertIn('read', plan['argv'])
 
     def test_acceptance_and_technical_select_exactly_one_route(self):
         acceptance = review_routing.review_plan('acceptance', self.repo, issue='CAF-123')
         technical = review_routing.review_plan('technical', self.repo, prompt_file=self.prompt)
-        self.assertEqual(acceptance['route'], 'peach')
-        self.assertEqual(technical['route'], 'potato')
+        self.assertEqual(acceptance['route'], 'acceptance')
+        self.assertEqual(technical['route'], 'technical')
         self.assertNotIn('potato', acceptance['argv'])
-        self.assertNotIn(str(PACKAGE / 'bin/peach-task'), technical['argv'])
+        self.assertNotIn(str(PACKAGE / 'bin/acceptance-task'), technical['argv'])
         self.assertIn('read', technical['argv'])
         self.assertTrue(acceptance['requiresUninvolvedTask'])
         self.assertEqual(acceptance['argv'][-2:], ['--expected-repo', 'fixture/repo'])
-        self.assertEqual(technical['executorRole'], 'potato')
+        self.assertEqual(technical['executorRole'], 'review')
         self.assertFalse(technical['isFinalVerdict'])
 
     def test_acceptance_cannot_implicitly_become_fixed_pr_final_review(self):
@@ -86,14 +102,15 @@ class ReviewEntryTests(unittest.TestCase):
         self.assertTrue(plan['requiresFinalVerdict'])
         self.assertEqual(self.cli(*args, '--dry-run').returncode, 0)
 
-    def test_remote_identity_keeps_concafe_on_owner_codex_policy_without_contract_file(self):
+    def test_remote_identity_keeps_concafe_separate_with_latest_opus_pin(self):
         self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         for kind in ('acceptance', 'technical', 'final'):
             options = {'issue': 'CAF-123'} if kind == 'acceptance' else {'prompt_file': self.prompt} if kind == 'technical' else {'sha': self.sha}
             plan = review_routing.review_plan(kind, self.repo, **options)
             self.assertEqual(plan['route'], 'separate-project-task')
-            self.assertEqual(plan['requiredModel'], 'gpt-6-astra' if kind == 'final' else 'gpt-6.1-sol')
-            self.assertEqual(plan['requiredEffort'], 'medium' if kind == 'acceptance' else 'high')
+            self.assertEqual(plan['requiredModel'], 'claude-opus-5-5')
+            self.assertEqual(plan['requiredEffort'], 'high')
+            self.assertEqual(plan['requiredBackend'], 'claude')
             self.assertFalse(plan['executableHere'])
             self.assertIsNone(plan['argv'])
 
@@ -103,14 +120,11 @@ class ReviewEntryTests(unittest.TestCase):
         self.git('worktree', 'add', '--detach', str(worktree), self.sha)
         self.assertTrue(review_routing.is_concafe_path(worktree))
 
-    def test_direct_potato_cannot_bypass_concafe_route_by_omitting_repo_option(self):
+    def test_direct_review_cannot_bypass_concafe_route_by_omitting_repo_option(self):
         self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
-        config = self.root / 'claude config'
-        (config / 'agents').mkdir(parents=True)
-        (config / 'agents/potato.md').symlink_to(PACKAGE / 'roles/potato/claude/agent.md')
-        with mock.patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(config)}):
-            with self.assertRaisesRegex(ValueError, '別 Codex タスク'):
-                role_launch.launch_spec('potato', self.repo, 'Review', batch=True, dry_run=True)
+        with self.assertRaisesRegex(ValueError, '別タスク'):
+            role_launch.launch_spec('review', self.repo, 'Review', batch=True, dry_run=True)
+
 
     def test_dry_run_technical_has_no_orca_model_or_task_state(self):
         with mock.patch.object(project_identity, 'git_process', wraps=project_identity.git_process) as git:
@@ -120,7 +134,7 @@ class ReviewEntryTests(unittest.TestCase):
         result = self.cli('--kind', 'technical', '--repo', str(self.repo),
                           '--prompt-file', str(self.prompt), '--dry-run')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)['route'], 'potato')
+        self.assertEqual(json.loads(result.stdout)['route'], 'technical')
 
     def test_unused_options_are_rejected_instead_of_losing_the_request(self):
         for kind, options in [('technical', {'issue': 'CAF-123', 'prompt_file': self.prompt}),

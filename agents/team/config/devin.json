@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "repo": "KAMP-fk/concafe-techo",
+  "readyStates": [
+    "Todo"
+  ],
+  "workingState": "In Progress",
+  "reviewState": "In Review",
+  "doneState": "Done",
+  "requiredLabel": "!implement",
+  "requiredValidation": [
+    "pnpm check"
+  ],
+  "branchPattern": "codex/caf-[0-9]+-.+",
+  "implementationAdapter": [],
+  "qualityAdapter": [],
+  "linearWorkspace": "610becb0-951f-43eb-853c-0b1b28cd3d3f",
+  "linearProject": "f2b9923a-412e-45cd-bde5-7d086c3c2264",
+  "linearTeam": "3940747e-64da-490c-a512-907dc388fddc"
+}

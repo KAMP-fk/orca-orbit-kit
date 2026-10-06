@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Banana engineering intake: coordination, local Devin, and review handoff."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+
+
+def review_saved(argv):
+    from checkout_context import common_dir, require_checkout
+    from project_tasks import job_key, job_path
+    from review_routing import review_plan
+    from role_contract import local_orca_only
+    parser = argparse.ArgumentParser(description='保存済み Devin 成果を独立 Potato に渡す', allow_abbrev=False)
+    parser.add_argument('--repo', required=True, type=Path)
+    parser.add_argument('--task-id', required=True)
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args(argv)
+    try:
+        local_orca_only()
+        job = job_path(job_key(common_dir(require_checkout(args.repo)), args.task_id))
+        record = json.loads((job / 'record.json').read_text())
+        handoff = record['handoff']
+        if record['role'] != 'banana' or record.get('workerBackend') != 'devin' or handoff.get('nextRole') != 'review':
+            raise ValueError('Review に渡せる Devin 成果がない')
+        implementation = require_checkout(record['targetPath'])
+        if implementation['dirty'] or implementation['headSha'] != handoff['headSha']:
+            raise ValueError('開発成果が固定版から変化している。現在の成果を再確認する')
+        saved = handoff['reviewPlan']
+        request = Path(handoff['requestPath'])
+        if hashlib.sha256(request.read_bytes()).hexdigest() != saved['request']['sha256']:
+            raise ValueError('レビューの依頼内容が保存時から変化している')
+        plan = review_plan(saved['kind'], handoff['targetPath'], prompt_file=request, sha=handoff['headSha'])
+        if plan['checkoutDirty']:
+            raise ValueError('レビュー checkout が変化している')
+        if args.dry_run or not plan['executableHere']:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+            return 0 if args.dry_run else 3
+        command = plan['argv'] + ['--task-id', 'review-' + record['key'], '--from-role', 'banana']
+        os.execv(sys.executable, command)
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        parser.error(str(exc))
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv == ['--inbox']:
+        print('Banana｜開発・Devin窓口\n'
+              '依頼元: Owner / Tomato\n'
+              '相談先: Tomato（目的・意図・受入範囲）\n'
+              '開発: banana develop --repo <checkout> --task-id <ID> --prompt-file <依頼>\n'
+              'レビュー引継ぎ: banana review --repo <checkout> --task-id <ID>\n'
+              '保守・調査: banana --repo <checkout> --prompt-file <依頼>\n'
+              'Devin 完了後、固定 SHA のレビュー checkout と依頼を保存。正式判定は独立経路へ。')
+        return 0
+    if argv and argv[0] == 'review':
+        return review_saved(argv[1:])
+    if argv and argv[0] == 'devin':
+        # Existing cloud/issue adapter state stays separate from local CLI jobs.
+        command = [sys.executable, str(ROOT / 'bin/devin'), *argv[1:]]
+    else:
+        develop = bool(argv and argv[0] == 'develop')
+        if develop:
+            argv = argv[1:]
+            if not any(arg == '--repo' or arg.startswith('--repo=') for arg in argv):
+                print('banana develop は --repo に対象 checkout が必要', file=sys.stderr)
+                return 2
+            if any(arg == '--worker-backend' or arg.startswith('--worker-backend=') for arg in argv):
+                print('banana develop の実装エンジンは Devin', file=sys.stderr)
+                return 2
+            argv = ['--worker-backend', 'devin', *argv]
+        command = [sys.executable, str(ROOT / 'bin/agent'), 'banana', *argv]
+    os.execv(sys.executable, command)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -8,8 +8,9 @@ import shutil
 import tempfile
 import unittest
 
-REVIEWER = Path('/Users/kamp/orca/agents/linear-inreview-reviewer/bin/linear-inreview-reviewer')
-WATCH = Path('/Users/kamp/.claude/skills/Tomato/bin/watch')
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REVIEWER = REPO_ROOT / 'agents/team/roles/potato/acceptance/bin/linear-inreview-reviewer'
+WATCH = Path('/Users/kamp/orca/agents/team/roles/tomato/skill/bin/watch')
 SHA = 'a' * 40
 BASE_SHA = 'c' * 40
 MOCK = r'''#!/usr/bin/python3
@@ -67,7 +68,7 @@ elif name=='gh':
   fail('pr_fetch_rc')
   count=sum(1 for line in Path(os.environ['CALL_LOG']).read_text().splitlines() if json.loads(line)[:3]==['gh','pr','view'])
   pr_update=cfg.get('pr_update',{}) if count >= cfg.get('pr_update_call',2) else {}
-  out(dict({'number':1,'title':'fixture','url':'https://github.com/test/repo/pull/1','headRefOid':cfg.get('head_sha','a'*40),'baseRefName':'main','baseRefOid':cfg.get('base_sha','c'*40),'state':'OPEN','updatedAt':'2026-01-01T00:00:00Z','changedFiles':cfg.get('changed_files',len(cfg.get('files',['src/main.ts']))),'commits':[],'files':[]},**pr_update))
+  out(dict({'number':1,'title':'fixture','url':cfg.get('pr_url','https://github.com/test/repo/pull/1'),'headRefOid':cfg.get('head_sha','a'*40),'baseRefName':'main','baseRefOid':cfg.get('base_sha','c'*40),'state':'OPEN','updatedAt':'2026-01-01T00:00:00Z','changedFiles':cfg.get('changed_files',len(cfg.get('files',['src/main.ts']))),'commits':[],'files':[]},**pr_update))
  elif a[:2]==['pr','diff']: print('diff --git a/src/main.ts b/src/main.ts')
  elif a[:2]==['pr','checks']:
   fail('checks_fetch_rc');out(cfg.get('required_checks',cfg.get('checks',[{'name':'Unit tests','bucket':'pass'}])) if '--required' in a else cfg.get('checks',[{'name':'Unit tests','bucket':'pass'}]));sys.exit(cfg.get('checks_rc',0))
@@ -134,7 +135,8 @@ elif name in ('codex','claude'):
   else: out({'type':'result','is_error':False,'session_id':'fixture-probe','modelUsage':cfg.get('probe_model_usage',{'claude-opus-5-5':{}}),'result':cfg.get('probe_result','PREFLIGHT_OK')})
   sys.exit(cfg.get('probe_rc',0))
  verdict=cfg.get('verdict','PASS')
- report=cfg.get('report') or 'Issue: CAF-999 '+cfg.get('issue_title','Offline fixture')+'\n\nVerdict: '+verdict+'\n\nSummary:\nfixture\n\nAcceptance Criteria:\n\n* [x] fixture\n\nFindings:\n\n* なし\n\nRequired Changes:\n\n* なし\n\nVerification:\n\n* PR: https://github.com/test/repo/pull/1\n* Commit: '+cfg.get('report_sha',cfg.get('head_sha','a'*40))+'\n* CI: '+cfg.get('report_ci','PASS')+'\n* Tests: '+cfg.get('report_tests','PASS')+'\n'
+ mode=re.search(r'^- Review Mode: (fixed-pr|issue)',prompt,re.MULTILINE).group(1)
+ report=cfg.get('report') or 'Issue: CAF-999 '+cfg.get('issue_title','Offline fixture')+'\n\nVerdict: '+verdict+'\n\nSummary:\nfixture\n\nAcceptance Criteria:\n\n* [x] fixture\n\nFindings:\n\n* なし\n\nRequired Changes:\n\n* なし\n\nVerification:\n\n* PR: https://github.com/test/repo/pull/1\n* Commit: '+cfg.get('report_sha',cfg.get('head_sha','a'*40))+'\n* CI: '+cfg.get('report_ci','PASS')+'\n* Tests: '+cfg.get('report_tests','PASS')+'\n* Reviewer: fixture-reviewer\n* Involvement: NOT_INVOLVED\n* Review Mode: '+mode+'\n'
  if name=='codex': print(report)
  else:
   out({'type':'result','is_error':False,'session_id':'fixture-session','modelUsage':cfg.get('model_usage',{'claude-opus-5-5':{}}),'result':report} if not cfg.get('bad_metadata') else {'result':report})
@@ -157,7 +159,7 @@ class OfflineCase(unittest.TestCase):
         guard=self.root/'guard-check';guard.write_text('#!/bin/sh\nexit 0\n');guard.chmod(0o755)
         sockets=self.root/'sockets';sockets.mkdir()
         self.env = dict({key:value for key,value in os.environ.items() if not key.startswith(('GIT_','TOMATO_','LINEAR_INREVIEW_'))}, PATH=str(self.bin)+':'+os.environ['PATH'], FIXTURE=str(self.fixture), CALL_LOG=str(self.log), MODEL_CONTEXT_LOG=str(self.model_context_log), LINEAR_INREVIEW_HOME=str(self.root/'reviewer-state'), TOMATO_STATE=str(self.root/'watch-state'), TOMATO_EXCLUDE=str(self.root/'exclude'), TOMATO_BRAIN=str(self.root/'brain'), TOMATO_GUARD=str(guard), TOMATO_SOCKET_DIR=str(sockets))
-        self.env['NAMED_TEAM_ROLE_CONTRACT'] = '/Users/kamp/orca/agents/named-team/roles.json'
+        self.env['NAMED_TEAM_ROLE_CONTRACT'] = str(REPO_ROOT / 'agents/team/roles.json')
         self.env['NAMED_TEAM_CLEANUP_WAIT_SECONDS'] = '0.2'
         inbox = self.root/'brain/Tomato/inbox.md'; inbox.parent.mkdir(parents=True); inbox.write_text('現在の窓口: fixture\n')
 
@@ -166,9 +168,7 @@ class OfflineCase(unittest.TestCase):
         return subprocess.run([str(executable), *args], env=self.env, text=True, capture_output=True, timeout=20)
 
     def review(self, *args):
-        # Existing regression cases exercise the explicitly selected Codex compatibility path.
-        # A later --backend argument selects Claude; default-backend tests call run_cli directly.
-        return self.run_cli(REVIEWER, 'CAF-999', '--pr', 'test/repo#1', '--backend', 'codex', *args)
+        return self.run_cli(REVIEWER, 'CAF-999', '--pr', 'test/repo#1', *args)
 
     def calls(self):
         return [json.loads(x) for x in self.log.read_text().splitlines()] if self.log.exists() else []
@@ -258,23 +258,32 @@ class OfflineCase(unittest.TestCase):
         self.config['actual_sha']='b'*40;r=self.review('--packet-only');self.assertEqual(r.returncode,3,r.stderr);self.assertIn('別 SHA',r.stdout)
         self.assertFalse(any(c[0] in ('codex','claude') for c in self.calls()))
 
-    def test_failed_probe_with_correct_banner_blocked(self):
+    def test_failed_probe_with_correct_metadata_blocked(self):
         self.config['probe_rc']=1;r=self.review();self.assertEqual(r.returncode,3,r.stderr);self.assertIn('BLOCKED',r.stdout)
-        self.assertEqual(sum(c[0]=='codex' for c in self.calls()),1)
+        self.assertEqual(sum(c[0]=='claude' for c in self.calls()),1)
 
     def test_inexact_model_blocked(self):
-        self.config['probe_model']='gpt-5X6-sol';r=self.review();self.assertEqual(r.returncode,3,r.stderr)
+        self.config['probe_model_usage']={'claude-opus-5X5':{}};r=self.review();self.assertEqual(r.returncode,3,r.stderr)
 
     def test_verdict_and_ledger(self):
         r=self.review();self.assertEqual(r.returncode,0,r.stderr)
         ledger=(self.root/'reviewer-state/ledger.tsv').read_text();self.assertIn('\tPASS\tPASS\tPASS\t',ledger)
-        self.assertIn('gpt-5.6-sol/high',ledger)
-        self.assertEqual(sum(c[0]=='codex' for c in self.calls()),2)
+        self.assertIn('claude-opus-5-5/high',ledger)
+        self.assertEqual(sum(c[0]=='claude' for c in self.calls()),2)
         p = next((self.root/'reviewer-state/packets/CAF-999').iterdir())
         guide = (p/'README.md').read_text()
-        self.assertIn('base との差分の取り方（Codex 専用）', guide)
-        self.assertIn('git log --oneline -20', guide)
-        self.assertIn('git diff refs/inreview/base...HEAD', guide)
+        self.assertIn('固定した差分・commit・ソースの読み方（Claude）', guide)
+        self.assertIn('github/pr-*/diff.patch', guide)
+        self.assertNotIn('Codex 専用', guide)
+
+    def test_legacy_backend_override_is_rejected_before_services_or_model(self):
+        for flags in ((), ('--no-preflight',), ('--packet-only',)):
+            with self.subTest(flags=flags):
+                result = self.review('--backend', 'codex', *flags)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('Opus 5.5', result.stderr)
+                self.assertFalse(self.calls())
+                self.assertFalse((self.root / 'reviewer-state').exists())
 
     def test_claude_metadata(self):
         r=self.review('--backend','claude');self.assertEqual(r.returncode,0,r.stderr)
@@ -333,7 +342,8 @@ class OfflineCase(unittest.TestCase):
         agent_name = review_args[review_args.index('--agent') + 1]
         self.assertEqual(agent_name, 'peach')
         agent = json.loads(review_args[review_args.index('--agents') + 1])[agent_name]
-        self.assertEqual(agent['prompt'], body.rstrip('\n'))
+        expected_role = '明示 --pr の固定 full head SHA に対する独立 PR レビュー。concafe では現行正本が定める R 段であり、別の署名付き最終レビューを要求しない。未関与・証拠・モデル等の条件を満たすときだけ PASS。条件が満たせないときは BLOCKED または CHANGES_REQUIRED。判定の範囲を汎用 Issue のみに限定する留保と PASS を併記しない。'
+        self.assertEqual(agent['prompt'], body.rstrip('\n') + '\n\n# 起動側が固定した役割\nReview Mode: fixed-pr\n' + expected_role)
         self.assertIn(body.rstrip('\n'), review_args[-1])
         self.assertEqual((agent['model'], agent['effort']), ('claude-opus-5-5', 'high'))
         self.assertEqual(agent['tools'], ['Read', 'Glob', 'Grep'])

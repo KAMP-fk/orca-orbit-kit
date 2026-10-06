@@ -3,21 +3,25 @@
 The Owner asked to handle `HANDOFF-agents-git-20261002.md`. Adopt option (3):
 version only the affected engineering sources, using two local repositories.
 
-- `/Users/kamp/orca`: allow `agents/linear-inreview-reviewer`, `agents/review-relay`,
-  `agents/named-team`, and their shared offline `tests`. Root policy and the handoff
-  are tracked. Other top-level files/directories are denied by default.
-- `/Users/kamp/.claude/skills/Tomato`: allow the skill source, selected bin commands,
-  modules, references, and new offline tests. This is the real source directory;
-  no copied source or symlink deployment is introduced.
+- `/Users/kamp/orca`: allow `agents/team` and shared offline `tests`.
+  Root policy and the handoff are tracked. Other top-level paths are denied by default.
+- `/Users/kamp/orca/agents/team/roles/tomato/skill`: Tomato's separate source repository.
+  Its `.git` and complete history were moved with the directory; the outer Orca
+  repository excludes this nested repository. Persona/brain remains outside it.
 
-For the 2026-10-03 named-agent refactor, Banana's skill, references and read-only
-context helper moved into `agents/named-team/roles/banana/skill`. The former
-`~/.claude/skills/Banana` is a compatibility symlink to that source. Tomato keeps
-its separate repository; the named-team installer links to it without importing
-persona, brain or observation runtime state. New role profiles remain inside
-`agents/named-team`; they do not replace the base Codex configuration.
+The 2026-10-06 Owner instructions keep Tomato, Banana and Review as three roles.
+Banana owns engineering intake, Devin implementation and consolidated infrastructure
+maintenance. Review stays independent and uses an on-demand project checkout.
+Shared helpers live in `agents/team/bin` and `lib`; role-specific sources live in
+`roles/tomato`, `roles/banana` and `roles/review`. Acceptance and relay sources now
+belong to `roles/review/acceptance` and `roles/review/relay`.
+The old source locations are compatibility symlinks, excluded from new Git additions.
+Installed commands, skills, profiles and the owned startup block use canonical paths.
+Profile files do not replace the base Codex configuration. Historical/runtime content
+and unconfigured external Devin adapters keep their existing contracts.
+See `agents/team/references/directory-layout.md` for the actual paths and migration.
 
-This boundary lets Melon and Kiwi use their normal launchers from actual Git
+This boundary lets the unified Banana role use its normal launcher from actual Git
 repositories and makes edits reversible. No Git-check bypass or trust change is
 needed. The wider Orca runtime, nested repositories/workspaces, CI-runner operation,
 logs, packet/ledger/state trees, local verification artifacts, and backups are excluded.
@@ -39,3 +43,7 @@ or unresolved tracked candidate findings block a commit.
 Runtime exclusions and credential patterns are explicit in `.gitignore`. An ignore
 file does not override an existing tracked entry, so inspect the index on every
 commit. Add a new source root intentionally; never use `git add -f` for runtime data.
+
+The 2026-10-06 consolidation keeps three local roles (Tomato, Banana, Review).
+Owned legacy Kiwi/Melon/Potato/Peach links are retired without deleting runtime history.
+Banana remains separate from independent review. See agents/team/references/agent-consolidation.md.

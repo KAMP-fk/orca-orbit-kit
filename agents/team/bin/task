@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Shared engineering task intake and result collection."""
+import argparse
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+from role_contract import LAUNCH_ROLES, local_orca_only, orca_command
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--role', choices=LAUNCH_ROLES)
+    parser.add_argument('--cleanup', action='store_true', help='保存した案件の統合後 cleanup。依頼を実行しない')
+    parser.add_argument('--merged-into', help='cleanup 時の確認済み統合先 ref。追加の merge 許可ではない')
+    args, remainder = parser.parse_known_args()
+    if args.cleanup:
+        cleanup_parser = argparse.ArgumentParser(description='所有する案件 worktree の統合後 cleanup')
+        cleanup_parser.add_argument('--repo', type=Path, required=True)
+        cleanup_parser.add_argument('--task-id', required=True)
+        selected = cleanup_parser.parse_args(remainder)
+        if not args.merged_into:
+            parser.error('--cleanup は --merged-into に確認済み統合先 ref を指定する')
+        from project_tasks import cleanup
+        try:
+            local_orca_only()
+            return cleanup(orca_command(), selected.repo, selected.task_id, args.merged_into)
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
+            print('cleanup は未確認。作業場所を保持: ' + str(exc), file=sys.stderr)
+            return 4
+    if not args.role:
+        parser.error('--role に明示した開発窓口/読み取り担当を指定する')
+    if args.merged_into:
+        parser.error('--merged-into は --cleanup と一緒に指定する')
+    if '--repo' not in remainder and not any(value.startswith('--repo=') for value in remainder):
+        parser.error('--repo に依頼の対象 checkout を指定する')
+    command = [sys.executable, str(ROOT / 'bin/agent'), args.role, *remainder]
+    os.execv(sys.executable, command)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

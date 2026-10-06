@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""One review entry, one explicit kind; never auto-start both reviewers."""
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'lib'))
+from review_routing import review_plan
+from role_contract import local_orca_only
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--inbox', action='store_true', help='モデル無しで3種類の受付方法を表示')
+    parser.add_argument('--kind', choices=('acceptance', 'technical', 'final'))
+    parser.add_argument('--repo', type=Path)
+    parser.add_argument('--issue')
+    parser.add_argument('--pr')
+    parser.add_argument('--sha', help='対象 checkout の現在の full HEAD SHA')
+    parser.add_argument('--prompt-file', type=Path)
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    if args.inbox:
+        if any((args.kind, args.repo, args.issue, args.pr, args.sha, args.prompt_file)):
+            parser.error('--inbox と依頼は併用しない')
+        print('Potato｜受入・技術レビュー — Opus 5.5 / high 固定\n'
+              '受入確認: potato --kind acceptance --repo <checkout> --issue <ID>\n'
+              '技術確認: potato --kind technical --repo <checkout> --prompt-file <依頼>\n'
+              '最終判定: potato --kind final --repo <checkout> --sha <full HEAD SHA> --dry-run\n'
+              '依頼がある時だけ実行。最終判定と concafe のレビューは未関与の別タスクへ引渡し。別モデルへ fallback しない。')
+        return 0
+    if not args.kind or not args.repo:
+        parser.error('--kind と --repo に依頼種別・対象 checkout を指定する')
+    try:
+        local_orca_only()
+        plan = review_plan(args.kind, args.repo, args.issue, args.pr, args.prompt_file, args.sha)
+        if args.dry_run or not plan['executableHere']:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+            return 0 if args.dry_run else 3  # Handoff required, never completed/PASS.
+        os.execv(sys.executable, plan['argv'])
+    except (OSError, ValueError, RuntimeError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

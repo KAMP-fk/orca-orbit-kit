@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 
-WATCH = Path('/Users/kamp/.claude/skills/Tomato/bin/watch')
+WATCH = Path('/Users/kamp/orca/agents/team/roles/tomato/skill/bin/watch')
 SHA = 'a' * 40
 MOCK = r'''#!/usr/bin/python3
 import json, os, sys

@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
+PACKAGE = Path(__file__).resolve().parents[1] / 'agents/team'
 sys.path.insert(0, str(PACKAGE / 'lib'))
 import event_monitor as monitor
 
@@ -70,7 +70,7 @@ class MonitorTests(unittest.TestCase):
         self.directory.cleanup()
 
     def changed(self, source='linear', **fields):
-        row={'key':'CAF-100','title':'before','url':'https://linear.app/example','labels':[]}
+        row={'key':'CAF-100','title':'before','url':'https://linear.app/example','labels':['type:decision']}
         monitor.observe(self.db,source,[row],NOW)
         row.update(title='after',**fields)
         monitor.observe(self.db,source,[row],NOW)
@@ -99,7 +99,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.dispatch(self.db,self.client,self.config),1)
         self.assertEqual(monitor.dispatch(self.db,self.client,self.config),0)
         launch=next(c for c in self.client.calls if c[:2]==('orchestration','worker-start'))
-        self.assertEqual(launch[launch.index('--worktree')+1],'id:banana-home')
+        self.assertEqual(launch[launch.index('--worktree')+1],'id:tomato-home')
         self.assertEqual(launch[launch.index('--model')+1],'gpt-6.1-sol')
         self.assertEqual(launch[launch.index('--effort')+1],'medium')
         self.assertNotIn('claude',launch)
@@ -112,31 +112,41 @@ class MonitorTests(unittest.TestCase):
         self.client.busy=False
         self.assertEqual(monitor.dispatch(self.db,self.client,self.config),1)
 
-    def test_old_pending_kiwi_uses_banana_entry_without_rewriting_its_history(self):
+    def test_old_pending_kiwi_is_preserved_without_launch(self):
         self.changed()
         with self.db:
             self.db.execute("UPDATE events SET role='kiwi'")
-        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 1)
-        launch = next(c for c in self.client.calls if c[:2] == ('orchestration', 'worker-start'))
-        self.assertEqual(launch[launch.index('--worktree') + 1], 'id:banana-home')
+        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 0)
         self.assertEqual(self.events()[0]['role'], 'kiwi')
+        self.assertEqual(self.events()[0]['status'], 'pending')
+        self.assertEqual(self.client.started, 0)
+        self.assertNotIn(('worktree', 'ps'), self.client.calls)
 
-    def test_unknown_kiwi_batch_blocks_shared_banana_home_without_redispatch(self):
-        self.changed()
+    def test_unknown_legacy_batch_is_not_rewritten_or_redispatched(self):
+        self.changed(labels=[])
         with self.db:
             self.db.execute("INSERT INTO batches VALUES ('old','kiwi','unknown',NULL,NULL)")
         self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 0)
         self.assertEqual(self.events()[0]['status'], 'pending')
+        self.assertEqual(self.db.execute("SELECT status FROM batches WHERE id='old'").fetchone()['status'],'unknown')
         self.assertEqual(self.client.started, 0)
 
-    def test_banana_and_old_kiwi_pending_cannot_both_start_in_one_snapshot(self):
-        self.changed()
+    def test_retired_implementation_and_quality_events_never_start_models(self):
+        self.changed(labels=[])
         with self.db:
             monitor.enqueue(self.db, 'health', {'key': 'legacy', 'state': 'failed'}, 'failed', NOW)
-            self.db.execute("UPDATE events SET role='kiwi' WHERE source='health'")
-        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 1)
-        self.assertEqual(self.client.started, 1)
-        self.assertEqual(sum(row['status'] == 'pending' for row in self.events()), 1)
+            self.db.execute("UPDATE events SET role='banana' WHERE source='health'")
+        self.assertEqual(monitor.dispatch(self.db,self.client,self.config), 0)
+        self.assertEqual(self.client.started, 0)
+        self.assertEqual(sum(row['status'] == 'pending' for row in self.events()), 2)
+        self.assertNotIn(('worktree', 'ps'), self.client.calls)
+
+    def test_devin_candidate_is_queued_without_codex_implementation(self):
+        self.changed(labels=['agent:devin'],stateType='unstarted',state='Todo')
+        self.assertEqual(self.events()[0]['role'],'banana')
+        self.assertEqual(monitor.dispatch(self.db,self.client,self.config),0)
+        self.assertEqual(self.client.started,0)
+        self.assertNotIn(('worktree', 'ps'), self.client.calls)
 
     def test_missing_native_worktree_identity_does_not_prepare_or_launch(self):
         self.changed()
@@ -183,7 +193,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.events()[0]['status'],'completed')
         self.assertIn(('orchestration','worker-release','--dispatch','dispatch-1'),self.client.calls)
         self.assertFalse(any(c[:2]==('terminal','close') for c in self.client.calls))
-        monitor.observe(self.db,'linear',[{'key':'CAF-101','title':'next'}],NOW)
+        monitor.observe(self.db,'linear',[{'key':'CAF-101','title':'next','labels':['type:decision']}],NOW)
         self.assertEqual(monitor.dispatch(self.db,self.client,self.config),1)
 
     def test_missing_worker_is_not_completion_or_release(self):
@@ -205,7 +215,7 @@ class MonitorTests(unittest.TestCase):
         monitor.observe(self.db,'linear',[row],NOW)
         for _ in range(5):monitor.failed(self.db,'linear','timeout',NOW,3)
         self.assertEqual(len(self.events()),1)
-        self.assertEqual(self.events()[0]['role'],'banana')
+        self.assertEqual(self.events()[0]['role'],'review')
         self.assertEqual(json.loads(self.db.execute('SELECT payload FROM facts').fetchone()['payload']),row)
         monitor.observe(self.db,'linear',[row],NOW,3)
         self.assertEqual([e['status'] for e in self.events()],['superseded','pending'])
@@ -229,7 +239,7 @@ class MonitorTests(unittest.TestCase):
         row['checks'][0].update(status='completed',conclusion='failure')
         monitor.observe(self.db,'ci:42',[row],NOW)
         self.assertEqual(self.events()[-1]['status'],'pending')
-        self.assertEqual(self.events()[-1]['role'],'banana')
+        self.assertEqual(self.events()[-1]['role'],'review')
 
     def test_wrong_run_does_not_prepare_or_launch_a_batch(self):
         self.changed();self.client.current_run='another-run'

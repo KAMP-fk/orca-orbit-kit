@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-PACKAGE = Path(__file__).resolve().parents[1] / 'agents/named-team'
+PACKAGE = Path(__file__).resolve().parents[1] / 'agents/team'
 HOOK = PACKAGE / 'shell/tab-autostart.zsh'
 INSTALLER = PACKAGE / 'install.py'
 
@@ -35,15 +35,12 @@ class TabStartupTests(unittest.TestCase):
                       for role, data in self.roles.items()}
         for role, root in self.roots.items():
             root.mkdir(parents=True, exist_ok=True)
-            if role not in ('peach', 'potato'):
-                profile = self.home / '.codex' / (role + '.config.toml')
-                profile.parent.mkdir(parents=True, exist_ok=True)
-                profile.symlink_to(PACKAGE / 'roles' / role / 'codex/profile.config.toml')
-        for role, source in [('potato', PACKAGE / 'roles/potato/claude/agent.md'),
-                             ('peach', PACKAGE.parent / 'linear-inreview-reviewer/claude/agent.md')]:
-            profile = self.home / '.claude/agents' / (role + '.md')
+            profile = self.home / '.codex' / (role + '.config.toml')
             profile.parent.mkdir(parents=True, exist_ok=True)
-            profile.symlink_to(source)
+            profile.symlink_to(PACKAGE / 'roles' / role / 'codex/profile.config.toml')
+        fable_profile = self.home / '.claude/named-team/tomato.settings.json'
+        fable_profile.parent.mkdir(parents=True)
+        fable_profile.symlink_to(PACKAGE / 'roles/tomato/claude/settings.json')
         tomato_skill = self.home / '.claude/skills/Tomato/SKILL.md'
         tomato_skill.parent.mkdir(parents=True)
         tomato_skill.write_text('---\nname: tomato\n---\nFixture role.\n')
@@ -58,7 +55,7 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
             executable.write_text(fixture)
             executable.chmod(0o755)
 
-    def shell(self, role='banana', env=None, cwd=None, options='-flic', before='', after=''):
+    def shell(self, role='tomato', env=None, cwd=None, options='-flic', before='', after=''):
         selected = (env or self.env).copy()
         path = cwd or self.roots[role]
         selected.setdefault('ORCA_WORKTREE_ID', 'fixture::' + str(path))
@@ -73,6 +70,22 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
         return subprocess.run([sys.executable, str(INSTALLER), '--home', str(target), *args],
                               text=True, capture_output=True, timeout=15)
 
+    def test_owned_pre_move_block_migrates_without_replacing_user_shell_config(self):
+        old_source = shlex.quote(str(PACKAGE.parent / 'named-team/shell/tab-autostart.zsh'))
+        block = ('\n# >>> named-team Orca tab autostart >>>\n'
+                 + '[[ ! -r ' + old_source + ' ]] || source ' + old_source
+                 + '\n# <<< named-team Orca tab autostart <<<\n')
+        user = '# user configuration\nexport FIXTURE_SETTING=preserved\n'
+        zshrc = self.home / '.zshrc'
+        zshrc.write_text(user + block)
+        result = self.install(self.home, '--tab-autostart')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = zshrc.read_text()
+        self.assertTrue(updated.startswith(user))
+        self.assertNotIn('agents/named-team/shell', updated)
+        self.assertIn(str(HOOK), updated)
+        self.assertEqual(self.install(self.home, '--check', '--tab-autostart').returncode, 0)
+
     def test_only_conversation_homes_start_models_and_review_is_model_free(self):
         for role in self.roots:
             with self.subTest(role=role):
@@ -80,11 +93,11 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
                 result = self.shell(role)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 launches = self.launches()
-                if role not in ('tomato', 'banana'):
+                if role not in ('tomato',):
                     self.assertEqual(launches, [], result.stdout + result.stderr)
-                    if role == 'peach':
-                        self.assertIn('Review｜受入・技術レビュー', result.stdout)
-                        self.assertIn('--kind final', result.stdout)
+                    if role == 'banana':
+                        self.assertIn('Banana｜開発・Devin窓口', result.stdout)
+                        self.assertIn('banana develop', result.stdout)
                     continue
                 self.assertEqual(len(launches), 1)
                 argv = launches[0]['argv']
@@ -92,10 +105,9 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
                 self.assertEqual(launches[0]['marker'], 'term_fixture')
                 self.assertNotIn('--', argv, 'an unsolicited prompt was supplied')
                 self.assertNotIn('exec', argv)
-                self.assertEqual(Path(argv[0]).name, 'codex')
-                self.assertEqual(argv[argv.index('-p') + 1], role)
-                self.assertIn('model_reasoning_effort="medium"', argv)
-                self.assertIn('check_for_update_on_startup=false', argv)
+                self.assertEqual(Path(argv[0]).name, 'claude')
+                self.assertEqual(argv[argv.index('--model') + 1], 'fable')
+                self.assertEqual(argv[argv.index('--effort') + 1], 'medium')
 
     def test_other_surfaces_shells_and_worktrees_never_start_a_model(self):
         cases = [('other-app', {'TERM_PROGRAM': 'Apple_Terminal'}, None, '-flic'),
@@ -105,7 +117,7 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
                  ('noninteractive', {}, None, '-flc'),
                  ('nested-nonlogin-shell', {}, None, '-fic'),
                  ('other-project', {}, self.home, '-flic')]
-        subtree = self.roots['kiwi'] / 'subdirectory'
+        subtree = self.roots['banana'] / 'subdirectory'
         subtree.mkdir()
         cases.append(('home-subdirectory', {}, subtree, '-flic'))
         for name, changes, cwd, options in cases:
@@ -140,7 +152,7 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
         self.assertEqual(len(self.launches()), 1, 'a new tab was suppressed by an inherited old handle')
 
     def test_missing_owned_profile_returns_to_shell_without_a_model(self):
-        (self.home / '.codex/banana.config.toml').unlink()
+        (self.home / '.claude/named-team/tomato.settings.json').unlink()
         result = self.shell(after='print shell-still-usable')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('shell-still-usable', result.stdout)
