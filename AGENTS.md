@@ -7,7 +7,7 @@ excludes other Orca projects and runtime material. Tomato's skill at
 
 - Apply the current human user's instructions before older skill or repository guidance.
 - The current roster is three roles — Tomato (consultation, Fable / medium), Banana
-  (engineering lead, Devin / Codex implementation, infrastructure maintenance) and
+  (engineering lead, Devin implementation, infrastructure maintenance) and
   Potato (independent review, Opus 5.5 / high, read-only). `agents/team/roles.json`
   is the source of truth; see `agents/team/README.md` and `references/team-topology.md`.
 - Preserve other roles' changes. Banana owns engineering, observation and review

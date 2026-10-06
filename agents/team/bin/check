@@ -15,12 +15,13 @@ esac
 rc=0
 step() { printf '\n== %s\n' "$1"; }
 
-step "python syntax (agents/team/lib, bin, install.py)"
-python3 -B - "$TEAM" <<'PY' || rc=1
+step "python syntax (agents/team lib/bin/install.py, tests, tomato skill lib/tests)"
+python3 -B - "$TEAM" "$TOMATO" "$ROOT" <<'PY' || rc=1
 import ast, sys
 from pathlib import Path
-team = Path(sys.argv[1]); bad = 0
+team, tomato, root = (Path(a) for a in sys.argv[1:4]); bad = 0
 files = list((team / 'lib').glob('*.py')) + [team / 'install.py']
+files += list((tomato / 'lib').glob('*.py')) + list((tomato / 'tests').glob('*.py')) + list((root / 'tests').glob('*.py'))
 for f in (team / 'bin').iterdir():
     if f.is_file() and f.read_bytes()[:40].startswith(b'#!') and b'python' in f.read_bytes()[:60]:
         files.append(f)

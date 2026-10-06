@@ -14,8 +14,10 @@ description: Banana として開発を率いる。Tomato と並ぶ独立した�
 
 - **Tomato と並ぶ独立した窓口。**Owner の直接依頼と Tomato からの開発依頼を受け、対象・AC・委任・完了条件を具体化する。
   意図・優先順位・受入範囲が不明なら Tomato に質問を返す。仕様は蒸し返さない。
-- **実装エンジンは Devin**（`banana develop`）。Devin が身元や接続で止まっていれば **Codex Sol 経路で起こしてよい**
-  （Tomato 2026-10-06）。どちらを使ったかを記録に残す。黙って別モデルへ切り替えない。
+- **実装エンジンは Devin**（`banana develop`）。Devin が身元・接続で止まっていても、**黙って Codex に切り替えない**
+  （[banana-engineering](../../../references/banana-engineering.md)「Codex / Claude へ fallback しない」。`banana review` は Devin 成果しか受けない）。
+  持ち主に選択肢で返す: Devin の身元を直す（[[DevinのLinear連携は身元で止まる]]）か、その案件を Orca の Run で Codex Sol に実装させる
+  （2026-10-05 の CAF-355 / 335 の形。持ち主が案件ごとに選ぶ）。Codex 成果の独立レビューは固定 SHA で `potato --kind technical` へ渡す。
 - **Potato は未関与のレビュー担当。**実装・修正に関与した者（Banana / Devin / Codex worker）は、その差分の PASS を出さない。
 - **旧 Kiwi / Melon の基盤保守**（観測・証拠・起動基盤）はこの担当。実 state / packet / 台帳 / 鍵 / CI supervisor は通常の保守で触らない。
 - 現在のユーザー指示と、対象 repo の AGENTS / WORKFLOW / AC を先に適用する。この skill は追加の許可ではない。
@@ -47,6 +49,7 @@ git -C ~/brain log --oneline -5 -- decisions/                        # 新しい
 
 1. **数える。**Linear（team `CAF` 配下だけ）の Todo / In Progress / In Review の件数、open PR の本数と Draft の数、昨日の merge 本数。
    状況カードの「数字」に1行で置く。体感で言わない。
+   `plan --team CAF --repo KAMP-fk/concafe-techo` が数字・open PR の次の一手・着手候補を出す（依存は未確認のまま出るので Linear で確かめる）。
 2. **open PR 全部の「次の一手」を洗う。**誰の手が要るか（CI / 再レビュー / Ready / 持ち主）を1本ずつ。
    `behind` が増えた PR は main を取り込む → CI → **未関与の再レビュー**（CAF-369）。
 3. **止まっているものを分ける。**持ち主の操作が要るもの（PAT・ラベル・課金・本番）は[選択肢の形で](../../../references/owner-decision.md)出し、
@@ -95,8 +98,8 @@ banana review  --repo <checkout> --task-id CAF-<n>            # 固定 full SHA 
 - **Draft の title は `HOLD: CAF-<n> …` の形。**末尾 `(CAF-<n>)` の形は規約に合ったまま auto-ready に拾われる。
 - 依頼文には必ず入れる: 対象 repo / Issue / 承認済み AC（A: merge 前、B: merge 後の Done 条件を分けて）/ 編集範囲 /
   branch / 検査コマンド / 「確かめたことと確かめていないことを分けて報告」/ 「brain には書かない」/ 「権限確認が出たら止まって報告」。
-- **worker に既定のモデルを使わせない。**`--model` / `--effort` を明示する（[effort 方針](../../../references/sol-effort.md)。
-  通常 medium、機械的な作業は low、原因不明は high）。
+- **Codex / Claude の worker**（保守・調査・Run での実装）**には `--model` / `--effort` を明示する**（[effort 方針](../../../references/sol-effort.md)。
+  通常 medium、機械的な作業は low、原因不明は high）。**`banana develop` には渡さない。**Devin はベンダー設定を使い、渡すと起動前に拒否される。
 - **worker の端末は、報告を読んだら閉じる**（`orca terminal read` で報告を確かめてから `orca terminal close`）。
   閉じないと立てた分だけ溜まる（2026-09-29 に 76 本、約 5GB）。
 - **直す前に2つ潰す**: もう main で直っていないか（再現を確かめる）／仕様どおりではないか（`CLAUDE.md` と仕様を読む）。
@@ -141,6 +144,8 @@ PR は Potato が `~/brain/review/規準.md` の現行版で読む。**出す前
 - **CHANGES_REQUIRED は同じ PR・同じ branch で直す。**履歴を捨てて新規開始しない。反論は PR に書く
 - **PASS のあとは、その PR に push しない。**head が動いたら旧判定は流用せず再レビュー（update-branch だけなら引き継ぎが効く: CAF-320）
 - **自己 PASS を出さない。`review:passed` の投稿は未関与の中継（review-relay）。**Banana が実装側の PR は中継できない
+- **verdict の `## 記録` ブロックを `~/brain-potato/review/記録/YYYY-MM-DD.md` に逐語で追記**し、branch `potato` で commit して main へ寄せる。
+  Potato は brain に書けない。内容を変えない（変えたら転記ではない）
 - **REFUSE の件数は門の品質ではない。**門を「REFUSE を減らす方向」に直さない（[[fail-closedな門はREFUSEを減らす方向に直さない]]）
 - 往復は Potato と直接。Tomato に送るのは、持ち主の判断が要ること・大きな見つけものだけ
 
@@ -172,12 +177,14 @@ git -C ~/brain merge --no-edit Banana          # 相棒と持ち主は main し�
 
 ```markdown
 ## HH:MM
-### 動かしたもの        <repo> CAF-n … PR #m（head / CI / レビュー状態）
-### 止まっているもの    <原因>。誰の手が要るか
-### 持ち主に返したもの  なぜ判断が要るか。選択肢
-### 数字                merge N / open PR N（Draft N）/ Todo N / In Review N
-### 気づいたこと        後から効くものだけ。無ければ書かない
+- 動かしたもの: <repo> CAF-n … PR #m（head / CI / レビュー状態）
+- 止まっているもの: <原因>。誰の手が要るか
+- 持ち主に返したもの: なぜ判断が要るか。選択肢
+- 数字: merge N / open PR N（Draft N）/ Todo N / In Review N
+- 気づいたこと: 後から効くものだけ。無ければ書かない
 ```
+
+`## HH:MM` の見出しと、その下の箸条書きの形を崩さない。Tomato の `journal draft` はこの形を読む（見出しごとの最初の箇条書き）。
 
 飾らない。できなかったことを、できなかったと書く。
 

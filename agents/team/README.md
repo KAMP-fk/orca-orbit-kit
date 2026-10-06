@@ -33,6 +33,7 @@ banana --inbox
 banana develop --repo /absolute/checkout --task-id feature-001 --from-role tomato --prompt-file /absolute/request.md --dry-run
 banana review --repo /absolute/checkout --task-id feature-001 --dry-run
 banana --repo /absolute/checkout --task-id watch-fix-001 --prompt-file /absolute/request.md --dry-run
+plan --team CAF --repo KAMP-fk/concafe-techo        # Banana の朝の数え（読むだけ。bin/plan）
 potato --inbox
 potato --kind acceptance --repo /absolute/checkout --issue CAF-123 --dry-run
 potato --kind technical --repo /absolute/checkout --prompt-file /absolute/review.md --dry-run
