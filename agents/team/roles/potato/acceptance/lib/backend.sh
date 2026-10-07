@@ -130,7 +130,11 @@ launch_reviewer() {
 - 今回の役割: ${REVIEW_ROLE}
 
 Verification の Reviewer / Involvement / Review Mode は必須。Reviewer はあなた自身の識別名、
-Involvement は対象の方針・実装・修正への関与の有無をあなた自身が表明する。
+Involvement は対象の方針・実装・修正・指摘対応・中継依頼への関与の有無をあなた自身が表明する。
+すべてに関与していない場合だけ NOT_INVOLVED、関与がある場合は INVOLVED。
+Summary に未関与の定型文「本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。」を1行書く。
+定型文は逐語のまま1行で、句点「。」まで書く（言い換え・途中の改行・句点抜けは保存時の検証で拒否される）。
+関与がある場合は何に関与したか、確認不能の場合は何を確認できないかを代わりに書き、Involvement を INVOLVED / UNKNOWN にする。
 Involvement を確認できなければ UNKNOWN として BLOCKED。Reviewer は BLOCKED でもあなた自身の識別名を記入し、UNKNOWN や記入例のままにしない。launcher は未関与を代筆しない。
 
 **まず \`${PACKET}/README.md\` を読むこと。**

@@ -54,3 +54,9 @@ Linear / GitHub への到達を済ませた**レビューパケット**のパス
 起動スクリプトはパケットを cwd とし、restricted mode・user/project/local の hook 無効・strict empty MCP と信頼済み inline agent 定義を明示する。
 組織の managed policy は優先され、これらの下位設定で managed hook や policy を迂回できるとは扱わない。
 このファイルを直接呼ぶだけで、その起動制約が適用済みだとは扱わない。
+
+Involvement は対象の方針・実装・修正・指摘対応・中継依頼への関与を reviewer 自身が表明する。
+すべてに関与していない場合だけ `NOT_INVOLVED`、関与がある場合は `INVOLVED`、確認不能は `UNKNOWN`。
+Summary に未関与の定型文「本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。」を1行書く。
+関与がある場合は何に関与したか、確認不能の場合は何を確認できないかを代わりに書き、対応する Involvement を記入する。
+関与があれば正式な未関与担当へ返し、UNKNOWN は BLOCKED とする。

@@ -38,3 +38,9 @@ concafe の現在 full SHA の最終独立レビューは、未関与の別タ�
 モデル指定は署名権限や最終 verdict の証拠を代替しない。
 互換 backend の詳細は [既存パイプラインの記録](references/legacy-pipeline.md) を参照する。
 fixture による検査は `python3 -B -m unittest discover -s tests -q`（Orca root）。
+
+Involvement は対象の方針・実装・修正・指摘対応・中継依頼への関与を reviewer 自身が表明する。
+すべてに関与していない場合だけ `NOT_INVOLVED`、関与がある場合は `INVOLVED`、確認不能は `UNKNOWN`。
+Summary に未関与の定型文「本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。」を1行書く。
+関与がある場合は何に関与したか、確認不能の場合は何を確認できないかを代わりに書き、対応する Involvement を記入する。
+関与があれば正式な未関与担当へ返し、UNKNOWN は BLOCKED とする。

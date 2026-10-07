@@ -3,10 +3,47 @@
 import json
 import importlib.util
 import subprocess
+import re
 from pathlib import Path
 import unittest
 
 import test_agent_refactor as fixtures
+
+
+class ReviewerInvolvementContractTests(unittest.TestCase):
+    def test_acceptance_involvement_scope_and_summary_declaration(self):
+        root = fixtures.REPO_ROOT / 'agents/team/roles/potato'
+        scope = '方針・実装・修正・指摘対応・中継依頼'
+        declaration = f'本セッションは対象の{scope}のいずれにも関与していない。'
+        skill = (root / 'acceptance/skill/SKILL.md').read_text()
+        template, rules = skill.split('### 記入規則', 1)
+        summary = template.split('Summary:', 1)[1].split('Acceptance Criteria:', 1)[0]
+        self.assertIn('<関与の表明（未関与なら定型文）>', summary)
+        self.assertNotIn(declaration, summary)
+        self.assertIn(f'**Involvement** は対象の{scope}への関与', rules)
+        self.assertIn('すべてに関与していない場合だけ `NOT_INVOLVED`', rules)
+        self.assertIn(declaration, rules)
+        self.assertIn('何に関与したか', rules)
+        self.assertIn('何を確認できないか', rules)
+        for relative in ('acceptance/README.md', 'acceptance/references/legacy-pipeline.md',
+                         'acceptance/claude/agent.md', 'acceptance/claude/legacy-agent.md',
+                         'acceptance/lib/backend.sh', 'skill/SKILL.md'):
+            with self.subTest(path=relative):
+                content = (root / relative).read_text()
+                self.assertIn(scope, content)
+                self.assertIn(declaration, content)
+
+    def test_declaration_covers_every_relay_gate_three_involvement_term(self):
+        root = fixtures.REPO_ROOT / 'agents/team/roles/potato'
+        relay = (root / 'relay/bin/review-relay').read_text()
+        match = re.search(r'^3\. レビュー記録に、レビュアーが(.+?)に関与していないことが書かれていること。$', relay, re.MULTILINE)
+        self.assertIsNotNone(match, 'relay gate three involvement clause is missing')
+        declaration = '本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。'
+        declaration_terms = set(declaration.split('対象の', 1)[1].split('のいずれにも', 1)[0].split('・'))
+        for term in match.group(1).split('・'):
+            with self.subTest(term=term):
+                self.assertTrue(term)
+                self.assertIn(term, declaration_terms)
 
 
 class ReviewerRoleTests(unittest.TestCase):
@@ -43,6 +80,8 @@ class ReviewerRoleTests(unittest.TestCase):
                 context = json.loads(self.model_context_log.read_text().splitlines()[-1])
                 prompt = context['argv'][-1]
                 self.assertIn('- Review Mode: fixed-pr', prompt)
+                self.assertIn('Involvement は対象の方針・実装・修正・指摘対応・中継依頼への関与', prompt)
+                self.assertIn('本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。', prompt)
                 if backend == 'claude':
                     self.assertIn('現行正本が定める R 段', prompt)
                 else:
@@ -80,6 +119,52 @@ class ReviewerRoleTests(unittest.TestCase):
                             for identity in ('UNKNOWN', 'unknown', '-', 'N/A', '  ', '不明', 'なし', '<reviewer自身の識別名>')),
                           report + '* Involvement: NOT_INVOLVED\n'):
             self.reject(malformed)
+
+    def test_non_involvement_sentence_requires_not_involved_for_every_verdict(self):
+        declaration = '本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。'
+        report = self.valid_report()
+        for verdict in ('CHANGES_REQUIRED', 'BLOCKED', 'PASS'):
+            for involvement in ('INVOLVED', 'UNKNOWN', 'NOT_INVOLVED'):
+                with self.subTest(verdict=verdict, involvement=involvement):
+                    candidate = report.replace('Verdict: PASS', 'Verdict: ' + verdict).replace(
+                        'Involvement: NOT_INVOLVED', 'Involvement: ' + involvement)
+                    if involvement == 'NOT_INVOLVED':
+                        self.config['report'] = candidate
+                        result = self.review()
+                        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                        self.assertIn('Verdict: ' + verdict, result.stdout)
+                    else:
+                        self.reject(candidate)
+                        self.assertIn('non-involvement declaration contradicts Involvement',
+                                      (self.packet() / 'verdict-validation.err').read_text())
+
+    def test_not_involved_requires_declaration_in_summary_for_every_verdict(self):
+        declaration = '本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。'
+        report = self.valid_report()
+        for verdict in ('PASS', 'CHANGES_REQUIRED', 'BLOCKED'):
+            for location in ('summary', 'missing', 'findings'):
+                with self.subTest(verdict=verdict, location=location):
+                    candidate = report.replace('Verdict: PASS', 'Verdict: ' + verdict)
+                    if location != 'summary':
+                        candidate = candidate.replace(declaration + '\n', '')
+                    if location == 'findings':
+                        candidate = candidate.replace('Findings:\n', 'Findings:\n' + declaration + '\n')
+                    if location == 'summary':
+                        self.config['report'] = candidate
+                        result = self.review()
+                        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                        self.assertIn('Verdict: ' + verdict, result.stdout)
+                    else:
+                        self.reject(candidate)
+                        self.assertIn('NOT_INVOLVED requires non-involvement declaration in Summary',
+                                      (self.packet() / 'verdict-validation.err').read_text())
+
+    def test_summary_involvement_placeholder_is_rejected(self):
+        report = self.valid_report()
+        for verdict in ('PASS', 'CHANGES_REQUIRED', 'BLOCKED'):
+            with self.subTest(verdict=verdict):
+                self.reject(report.replace('Verdict: PASS', 'Verdict: ' + verdict).replace(
+                    'Summary:\n', 'Summary:\n<関与の表明（未関与なら定型文）>\n'))
 
     def test_report_cannot_change_launcher_role(self):
         self.reject(self.valid_report().replace('Review Mode: fixed-pr', 'Review Mode: issue'))
@@ -129,7 +214,7 @@ class ReviewerRoleTests(unittest.TestCase):
 
     def test_unknown_involvement_blocked_keeps_reviewer_name_and_summary(self):
         report = self.valid_report().replace('Verdict: PASS', 'Verdict: BLOCKED')
-        self.config['report'] = report.replace('Involvement: NOT_INVOLVED', 'Involvement: UNKNOWN')
+        self.config['report'] = report.replace('Involvement: NOT_INVOLVED', 'Involvement: UNKNOWN').replace('本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。', '関与の有無を確認できない。')
         result = self.review('--backend', 'claude')
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn('Reviewer: fixture-reviewer', result.stdout)
@@ -199,7 +284,7 @@ class ReviewerRoleTests(unittest.TestCase):
 
     def test_involved_reviewer_can_return_blocked_without_forged_independence(self):
         report = self.valid_report().replace('Verdict: PASS', 'Verdict: BLOCKED')
-        self.config['report'] = report.replace('Involvement: NOT_INVOLVED', 'Involvement: INVOLVED')
+        self.config['report'] = report.replace('Involvement: NOT_INVOLVED', 'Involvement: INVOLVED').replace('本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。', '対象の実装に関与した。')
         result = self.review()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn('* Involvement: INVOLVED', result.stdout)

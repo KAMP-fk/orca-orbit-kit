@@ -113,7 +113,12 @@ Codex 互換 backend は起動前に BLOCKED、保存時もその PASS を拒否
 未関与・取得証拠・CI・Tests・実モデル等の条件をすべて満たした PASS を中継の根拠に使う。
 ADR-061 が撤去した署名付き Codex verdict ゲートは再要求しない。
 汎用 Issue の PASS を固定 PR の R 段へ転用しない。既定モデルや台帳の PASS だけでも充足しない。
-判定の Reviewer / Involvement / Review Mode は必須で、未関与の表明は reviewer 自身が行う。
+判定の Reviewer / Involvement / Review Mode は必須。
+Involvement は対象の方針・実装・修正・指摘対応・中継依頼への関与を reviewer 自身が表明する。
+すべてに関与していない場合だけ `NOT_INVOLVED`、関与がある場合は `INVOLVED`、確認不能は `UNKNOWN`。
+Summary に未関与の定型文「本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。」を1行書く。
+関与がある場合は何に関与したか、確認不能の場合は何を確認できないかを代わりに書き、対応する Involvement を記入する。
+関与があれば正式な未関与担当へ返し、UNKNOWN は BLOCKED とする。
 launcher が未関与を代筆せず、空欄・不正値・役割不一致・関与ありの PASS は拒否する。
 Reviewer の記入例と UNKNOWN は拒否し、確認不能の表明は Involvement=UNKNOWN と BLOCKED にする。
 役割否認の追加検査は、最終独立レビュー等に直接つながる「の代わりにならない」「の根拠にはならない」
