@@ -604,7 +604,11 @@ def main():
             serve(config, args.state_root)
             return 0
         if args.action == 'request':
-            print(encode({'requested': request_tick(config, args.state_root), 'starts': 0}))
+            result = {'requested': request_tick(config, args.state_root), 'starts': 0}
+            if args.scheduler:
+                from banana_continuation import tick
+                result['continuation'] = tick(config, args.state_root / 'continuation' if args.state_root else None)
+            print(encode(result))
             return 75 if args.scheduler else 0
         complete = True
         with state(config, args.state_root) as db:

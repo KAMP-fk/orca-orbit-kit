@@ -36,6 +36,7 @@ banana develop --repo /absolute/checkout --task-id feature-001 --from-role tomat
 banana review --repo /absolute/checkout --task-id feature-001 --dry-run
 banana --repo /absolute/checkout --task-id watch-fix-001 --prompt-file /absolute/request.md --dry-run
 plan --team CAF --repo KAMP-fk/concafe-techo        # Banana の朝の数え（読むだけ。bin/plan）
+banana continue status                          # 既存 Banana の自律進行の状態
 potato --inbox
 potato --kind acceptance --repo /absolute/checkout --issue CAF-123 --dry-run
 potato --kind technical --repo /absolute/checkout --prompt-file /absolute/review.md --dry-run
@@ -87,3 +88,7 @@ agents/team/bin/check              # 構文 + 両 repo のテスト + git diff -
 新規の品質イベントは `review`、明示 decision は Tomato、実装候補は Banana へ記録する。
 旧 pending 記録は保全し、イベントからモデルや Devin を暗黙に起動しない。
 稼働中の旧 coordinator が新コードへ切り替わったとは扱わない。
+
+Owner が明示的に有効化した [Banana の自律進行](references/banana-continuation.md) は、
+5分時計から既存 Banana に完了後の継続を依頼する。実装枠の補充・成果回収・待機中の別案件は
+Banana が担当し、実装 WIP 2本、案件排他、現行の独立レビュー・CI・人間ゲートを維持する。

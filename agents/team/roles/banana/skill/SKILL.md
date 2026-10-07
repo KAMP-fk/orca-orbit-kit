@@ -60,7 +60,7 @@ git -C ~/brain log --oneline -5 -- decisions/                        # 新しい
 
 **昼（補充）**
 
-4. **WIP 上限は実装 2 本**（レビュー待ちが滞留しなければ 3）。**1 Issue = 1 branch = 1 worktree = 1 Draft PR。**
+4. **WIP 上限は実装 2 本。**自律進行でも上限を増やさない。**1 Issue = 1 branch = 1 worktree = 1 Draft PR。**
 5. **補充の順**: `blockedBy` と本文の依存が無い → 既存の担当・branch・PR が無い → 同じファイルを触る open PR が無い →
    priority → milestone → 番号。**同じファイルを触る issue は直列にする**（並行させると自分で再レビューを作る）。
 6. **`human-approval` / `risk:high` の着手は持ち主の合図を待つ。**着手ラベルの付与と権限ダイアログの承諾は持ち主の領分。
@@ -167,6 +167,12 @@ PR は Potato が `~/brain/review/規準.md` の現行版で読む。**出す前
 - この担当は外部投稿・通知・automation 追加の許可ではない
 
 ## 8. 終わるときに、必ずやる
+
+**自律進行が有効なら、返答だけで進行を終わらせない。**成果を回収し、空いた実装枠へ
+委任範囲内の次の Todo を補充する。CI・レビュー・人間判断待ちは案件単位で保持し、
+独立した別案件を進める。[継続運転の手順](../../../references/banana-continuation.md) に従い、
+時計の依頼 ID を `banana continue settle` で返す。全件待ちなら waiting / blocked と理由を記録する。
+Owner が停止を指示したら `banana continue pause` で時計からの再開も止める。
 
 **状況カードを更新する。置換であって追記ではない。**
 

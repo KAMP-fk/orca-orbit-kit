@@ -22,5 +22,10 @@ unknown/launching を期限切れと見なして再送しない。DBや台帳を
 ソースと稼働中 coordinator の読込済みコードは別物。
 新adapter未接続の間に旧実装ルートへ戻したり、起動を再試行したりしない。
 
+Owner の 2026-10-07 の直接依頼による [Banana の自律進行](banana-continuation.md) は
+別の opt-in 経路。時計の `request --scheduler` が、既存 Banana の待機と進められる仕事を
+確認して継続を依頼する。outbox の候補を自動実装許可へ変えず、新しい worker を時計から
+起動しない。無効時の既存監視の動作は維持する。
+
 切替時は [運用手順](devin-operations.md) のdrainを使い、既存担当と不明batchを先に回収する。
 旧導入記録は [history/event-monitor-before-20261005.md](history/event-monitor-before-20261005.md)。

@@ -69,6 +69,9 @@ def review_saved(argv):
 
 def main():
     argv = sys.argv[1:]
+    if argv and argv[0] == 'continue':
+        from banana_continuation import main as continue_main
+        return continue_main(argv[1:])
     if argv == ['--inbox']:
         print('Banana｜開発窓口\n'
               '依頼元: Owner / Tomato\n'
