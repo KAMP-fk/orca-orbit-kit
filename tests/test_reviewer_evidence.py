@@ -120,6 +120,45 @@ os.execv(orca, [orca] + args)
         self.assertEqual(sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-998'] for c in self.calls()), 1)
         self.assertFalse((packet / 'linear/issue-acquired.json').exists())
 
+    def test_second_related_initial_failure_with_stdin_consuming_orca(self):
+        # A CLI that drains stdin must not consume the loop's remaining Issue IDs.
+        wrapper = self.bin / 'orca-drain-stdin'
+        wrapper.write_text('''#!/usr/bin/python3
+import json, os, sys
+from pathlib import Path
+sys.stdin.read()
+args = sys.argv[1:]
+if args[:3] == ['linear', 'issue', 'CAF-998']:
+    with Path(os.environ['CALL_LOG']).open('a') as stream:
+        stream.write(json.dumps(['orca'] + args) + '\\n')
+    print(json.dumps({'ok': False, 'code': 'runtime_unavailable'}))
+    print('second related fixture diagnostic', file=sys.stderr)
+    sys.exit(1)
+orca = str(Path(__file__).with_name('orca'))
+os.execv(orca, [orca] + args)
+''')
+        wrapper.chmod(0o755)
+        self.env['ORCA_CLI_COMMAND'] = str(wrapper)
+        self.config = {'relations': [{'relatedIssue': {'identifier': rid}}
+                                     for rid in ('CAF-997', 'CAF-998')]}
+        result = self.review('--packet-only')
+        counts = {rid: sum(c[:4] == ['orca', 'linear', 'issue', rid] for c in self.calls())
+                  for rid in ('CAF-997', 'CAF-998')}
+        self.assertEqual(counts, {'CAF-997': 1, 'CAF-998': 1}, result.stderr + result.stdout)
+        self.assert_blocked(result)
+        self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
+        self.assertNotIn('更新された', result.stdout)
+        packet = self.latest_packet()
+        records = [json.loads(row) for row in (packet / 'evidence.jsonl').read_text().splitlines()]
+        for rid, status, rc in (('CAF-997', 'acquired', 0), ('CAF-998', 'failed', 1)):
+            self.assertEqual([(r['status'], r['exitCode']) for r in records
+                              if r['key'] == 'linear.related.' + rid], [(status, rc)])
+        self.assertEqual(json.loads((packet / 'linear/related/CAF-997.json').read_text())
+                         ['result']['issue']['identifier'], 'CAF-997')
+        self.assertIn('second related fixture diagnostic',
+                      (packet / 'linear/related/CAF-998.json.err').read_text())
+        self.assertFalse((packet / 'linear/issue-acquired.json').exists())
+
     def test_initial_related_malformed_response_stops_before_recheck(self):
         for response in ({'ok': False, 'code': 'runtime_unavailable'},
                          {'ok': True, 'result': {'issue': {'identifier': 'CAF-998'}}}):
