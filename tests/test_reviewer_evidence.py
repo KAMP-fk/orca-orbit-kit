@@ -83,6 +83,74 @@ class EvidenceCase(unittest.TestCase):
         self.config.update(issue_update={'description': 'new requirements'}, issue_update_call=3)
         self.assert_blocked(self.review(), model_expected=True)
 
+    def initial_related_response(self, response, rc):
+        # Override only the first related fetch; later calls use the normal fixture.
+        wrapper = self.bin / 'orca-initial-related'
+        wrapper.write_text('''#!/usr/bin/python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+log = Path(os.environ['CALL_LOG'])
+call = ['orca'] + args
+previous = [json.loads(row) for row in log.read_text().splitlines()] if log.exists() else []
+if args[:3] == ['linear', 'issue', 'CAF-998'] and not any(row[:4] == call[:4] for row in previous):
+    with log.open('a') as stream:
+        stream.write(json.dumps(call) + '\\n')
+    print(%r)
+    print('initial related fixture diagnostic', file=sys.stderr)
+    sys.exit(%r)
+orca = str(Path(__file__).with_name('orca'))
+os.execv(orca, [orca] + args)
+''' % (json.dumps(response), rc))
+        wrapper.chmod(0o755)
+        self.env['ORCA_CLI_COMMAND'] = str(wrapper)
+        self.config = {'relations': [{'relatedIssue': {'identifier': 'CAF-998'}}]}
+
+    def test_initial_related_fetch_failure_stops_as_acquisition_failure(self):
+        self.initial_related_response({'ok': False, 'code': 'runtime_unavailable'}, 1)
+        result = self.review('--packet-only')
+        self.assert_blocked(result)
+        self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
+        packet = self.latest_packet()
+        self.assertIn(str(packet / 'linear/related/CAF-998.json.err'), result.stdout)
+        self.assertNotIn('更新された', result.stdout)
+        records = [json.loads(row) for row in (packet / 'evidence.jsonl').read_text().splitlines()]
+        self.assertEqual([(r['status'], r['exitCode']) for r in records if r['key'] == 'linear.related.CAF-998'], [('failed', 1)])
+        self.assertFalse(any('changed' in r['detail'] for r in records))
+        self.assertEqual(sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-998'] for c in self.calls()), 1)
+        self.assertFalse((packet / 'linear/issue-acquired.json').exists())
+
+    def test_initial_related_malformed_response_stops_before_recheck(self):
+        for response in ({'ok': False, 'code': 'runtime_unavailable'},
+                         {'ok': True, 'result': {'issue': {'identifier': 'CAF-998'}}}):
+            with self.subTest(response=response):
+                self.log.unlink(missing_ok=True)
+                self.initial_related_response(response, 0)
+                result = self.review('--packet-only')
+                self.assert_blocked(result)
+                self.assertIn("関連 Issue CAF-998 の応答が不正", result.stdout)
+                packet = self.latest_packet()
+                records = [json.loads(row) for row in (packet / 'evidence.jsonl').read_text().splitlines()]
+                self.assertTrue(any(r['status'] == 'invalid' and r['detail'] == 'malformed related Issue response' for r in records))
+                self.assertFalse(any('changed' in r['detail'] for r in records))
+                self.assertEqual(sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-998'] for c in self.calls()), 1)
+
+    def test_related_change_on_acquisition_recheck_still_blocks(self):
+        self.config = {'relations': [{'relatedIssue': {'identifier': 'CAF-998'}}],
+                       'related_update': {'description': 'changed related requirements'}}
+        result = self.review('--packet-only')
+        self.assert_blocked(result)
+        self.assertIn('関連 Issue CAF-998 の状態・要件・前提が取得後に更新された', result.stdout)
+        records = [json.loads(row) for row in (self.latest_packet() / 'evidence.jsonl').read_text().splitlines()]
+        self.assertTrue(any(r['detail'] == 'Related Issue requirements, status or context changed' for r in records))
+
+    def test_unchanged_related_acquisition_recheck_proceeds(self):
+        self.config = {'relations': [{'relatedIssue': {'identifier': 'CAF-998'}}]}
+        packet = self.packet(self.review('--packet-only'))
+        self.assertTrue((packet / 'linear/rechecks/acquired/CAF-998.json').is_file())
+        self.assertTrue(json.loads((packet / 'evidence.json').read_text())['complete'])
+        self.assertFalse(any(c[0] in ('codex', 'claude') for c in self.calls()))
+
     def test_related_issue_changes_during_model_with_main_unchanged(self):
         updates = ({'related_update': {'description': 'new parent requirements'}},
                    {'related_update': {'state': {'name': 'Done'}}},
