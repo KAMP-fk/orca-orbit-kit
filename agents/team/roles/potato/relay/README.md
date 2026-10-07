@@ -99,4 +99,4 @@ review-relay <PR番号> <この PR の issue コメント URL> --verdict <判定
 - CAF-308 — 中継者の未関与を機械的に担保できない
 - CAF-364 — Orca 経由のレビュアーが read-only の担保を失った
 - `~/brain/decisions/2026-10-01-中継専任を立てる.md`
-- 訂正の例外の根拠: 持ち主が 2026-10-07 に Banana のチャットで、誤った `target_url` の訂正を relay の門に足す案を選んだ。記録: `~/brain/dev/報告/2026-10-07.md`、Linear CAF-372、[PR #313 のコメント欄](https://github.com/KAMP-fk/concafe-techo/pull/313#discussion_bucket)。
+- 訂正の例外の根拠: 持ち主が 2026-10-07 18:1x JST に Banana のチャットで、選択肢「門に『訂正の1本』を足す」を選んだ（誤った `target_url` の訂正だけを許す）。記録: `~/brain/dev/報告/2026-10-07.md` の同日の節（「持ち主の判断4点」）、窓口への連絡 team-mail `aef5dd19dcb9442ea1d689368a51d3a3`。きっかけは concafe-techo PR #313（CAF-372）の `review:passed` が PR 全体の URL を `target_url` にして付いたこと

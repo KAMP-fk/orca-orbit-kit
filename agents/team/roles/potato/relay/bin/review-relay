@@ -2,7 +2,7 @@
 # review-relay — review:passed を中継する専任。これ以外のことをしない。
 #
 # 使い方:
-#   review-relay <PR番号> <レビュー記録のURL> --verdict <判定ファイル>
+#   review-relay <PR番号> <この PR の issue コメント URL> --verdict <判定ファイル>
 #                [--repo <owner/name>] [--dry-run] [--correct-target-url]
 #
 #   --verdict は launcher が人に返した判定（packet の verdict.md 等）。
@@ -41,8 +41,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$pr" ]     || die "PR 番号が無い。使い方: review-relay <PR番号> <レビュー記録のURL>"
-[ -n "$record" ] || die "レビュー記録の URL が無い。**記録の無い中継はしない**"
+[ -n "$pr" ]     || die "PR 番号が無い。使い方: review-relay <PR番号> <この PR の issue コメント URL>"
+[ -n "$record" ] || die "この PR の issue コメント URL（レビュー記録）が無い。**記録の無い中継はしない**"
 [[ "$pr" =~ ^[0-9]+$ ]] || die "PR 番号が数字でない: ${pr}"
 [ -n "$verdict_file" ] || die "--verdict が無い。**判定の逐語を確かめずに中継しない**
        launcher が人に返した判定のファイル（packet の verdict.md 等）を渡すこと。
