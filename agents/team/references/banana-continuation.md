@@ -29,6 +29,9 @@ precheck は常に非0（通常75）で終了し、automation の汎用 provider
 無効時と `--state-root` による fixture 検証は実際の継続運転に触れない。
 時計は毎回新しい CLI process から現在の source を読むため、既存の監視や
 モデルセッションを再起動せずにこの経路を反映できる。
+手動確認は `banana continue tick`、または上記の precheck command を直接使う。
+Orca の automation `run` は手動実行で precheck を通さず、汎用 provider 用の
+別端末を作るため、この時計の継続運転の確認には使わない。
 
 継続運転の正本は `~/.local/share/named-team/continuation/concafe-techo/control.json`。
 排他 lock、Owner 委任、有効/休止、送信前 fence、Orca の送信 receipt と完了結果を保持する。
