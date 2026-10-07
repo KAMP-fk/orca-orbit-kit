@@ -52,10 +52,9 @@ command -v gh >/dev/null || die "gh が無い"
 [ -x "$CODEX" ]          || die "codex が無い: ${CODEX}"
 
 record_prefix="https://github.com/${repo}/pull/${pr}#issuecomment-"
-if [ "$correct_target_url" = 1 ]; then
-  [[ "$record" == "$record_prefix"* && "${record#"$record_prefix"}" =~ ^[1-9][0-9]*$ ]] \
-    || die "訂正先はこの PR の issue コメント URL でなければならない: ${record}"
-fi
+[[ "$record" == "$record_prefix"* && "${record#"$record_prefix"}" =~ ^[1-9][0-9]*$ ]] \
+  || die "記録先はこの PR の issue コメント URL でなければならない: ${record}"
+comment_id="${record#"$record_prefix"}"
 old_target_url=""
 
 mkdir -p "$LOG_DIR"
@@ -102,18 +101,21 @@ else
   statuses="$(gh api "repos/${repo}/commits/${head_sha}/statuses" 2>/dev/null || echo '[]')"
 fi
 
-# レビュー記録の本文を取る（PR / issue コメントの URL、またはローカルファイル）
-record_body=""
-if [ -f "$record" ]; then
-  record_body="$(cat "$record")"
-elif [[ "$record" =~ issuecomment-([0-9]+) ]]; then
-  record_body="$(gh api "repos/${repo}/issues/comments/${BASH_REMATCH[1]}" -q .body 2>/dev/null || true)"
-elif [[ "$record" =~ /pull/([0-9]+)#?.*$ ]]; then
-  record_body="$(gh api "repos/${repo}/issues/${BASH_REMATCH[1]}/comments" \
-                   -q '.[].body' 2>/dev/null | tail -c 20000 || true)"
-fi
+# 訂正・通常とも検証器と同じ条件を要求する。PR URL / ローカルパスでは
+# 打てても通らない status になる（#313）。正本: concafe-techo
+# 2dc5928dab6be0fe54c1ed507fde68481f9e687b .github/scripts/review-evidence.sh。
+comment="$(gh api "repos/${repo}/issues/comments/${comment_id}")" \
+  || die "レビュー記録のコメントを読めない: ${record}"
+jq -e --arg url "$record" \
+    --arg issue "https://api.github.com/repos/${repo}/issues/${pr}" \
+    --arg id "$comment_id" \
+    'type == "object" and .html_url == $url and .issue_url == $issue
+      and (.id | tostring) == $id and (.body | type) == "string"' \
+    <<<"$comment" >/dev/null 2>&1 \
+  || die "レビュー記録のコメントがこの PR の URL / id / 本文型と一致しない: ${record}"
+record_body="$(jq -r '.body' <<<"$comment")"
 [ -n "$record_body" ] || die "レビュー記録の本文を取れない: ${record}
-       **本文を読めないものを中継しない。**ローカルファイルのパスを渡してもよい"
+       **本文を読めないものを中継しない。**この PR の issue コメント URL を渡すこと"
 
 # ── 2. 機械で確かめられる門（fail-closed。欠けたらモデルを呼ばない）──
 note "機械で確かめる門を通す"
