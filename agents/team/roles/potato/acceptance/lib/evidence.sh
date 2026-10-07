@@ -26,7 +26,7 @@ evidence_capture() { # key path required scope command ...
   local key="$1" path="$2" required="$3" scope="$4" started rc=0
   shift 4
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  "$@" > "$path" 2> "$path.err" || rc=$?
+  "$@" </dev/null > "$path" 2> "$path.err" || rc=$?
   local semantic_exit=0
   if [[ "$key" == *.required-checks ]] && { [ "$rc" -eq 1 ] || [ "$rc" -eq 8 ]; } &&
     jq -e 'type == "array" and length > 0 and all(.[]; (.name | type == "string") and (.bucket | type == "string"))' "$path" >/dev/null 2>&1; then
