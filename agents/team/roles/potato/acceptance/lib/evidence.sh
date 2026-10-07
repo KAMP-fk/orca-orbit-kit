@@ -23,20 +23,27 @@ evidence_record() { # key path required status started_at finished_at rc scope d
 }
 
 evidence_capture() { # key path required scope command ...
-  local key="$1" path="$2" required="$3" scope="$4" started rc=0
+  local key="$1" path="$2" required="$3" scope="$4" started rc=0 retry_detail=""
   shift 4
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   "$@" </dev/null > "$path" 2> "$path.err" || rc=$?
+  if [ "$rc" -ne 0 ] &&
+    jq -se 'length == 1 and (.[0] | type == "object" and .ok == false and .error.code == "runtime_unavailable")' "$path" >/dev/null 2>&1; then
+    sleep "${EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS:-2}"
+    retry_detail="; runtime_unavailable のため1回再試行"
+    rc=0
+    "$@" </dev/null > "$path" 2> "$path.err" || rc=$?
+  fi
   local semantic_exit=0
   if [[ "$key" == *.required-checks ]] && { [ "$rc" -eq 1 ] || [ "$rc" -eq 8 ]; } &&
     jq -e 'type == "array" and length > 0 and all(.[]; (.name | type == "string") and (.bucket | type == "string"))' "$path" >/dev/null 2>&1; then
     semantic_exit=1
   fi
   if [ "$rc" -eq 0 ] || [ "$semantic_exit" -eq 1 ]; then
-    evidence_record "$key" "$path" "$required" acquired "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" "$scope" "semantic check exit=$semantic_exit"
+    evidence_record "$key" "$path" "$required" acquired "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" "$scope" "semantic check exit=$semantic_exit$retry_detail"
   else
     # A partial stdout is retained for diagnosis, never relabelled as an empty success.
-    evidence_record "$key" "$path" "$required" failed "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" "$scope" "see ${path#"$PACKET/"}.err"
+    evidence_record "$key" "$path" "$required" failed "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" "$scope" "see ${path#"$PACKET/"}.err$retry_detail"
   fi
   [ "$semantic_exit" -ne 1 ] || rc=0
   return "$rc"

@@ -106,6 +106,86 @@ os.execv(orca, [orca] + args)
         self.env['ORCA_CLI_COMMAND'] = str(wrapper)
         self.config = {'relations': [{'relatedIssue': {'identifier': 'CAF-998'}}]}
 
+    def capture_related_with_failures(self, response, rc=1, failures=1, raw_stdout=None):
+        self.initial_related_response(response, rc)
+        wrapper = Path(self.env['ORCA_CLI_COMMAND'])
+        source = wrapper.read_text().replace(
+            "not any(row[:4] == call[:4] for row in previous)",
+            "sum(row[:4] == call[:4] for row in previous) < " + str(failures))
+        if raw_stdout is not None:
+            source = source.replace('print(%r)' % json.dumps(response), 'print(%r)' % raw_stdout)
+        # Both attempts must leave the related-Issue loop's stdin untouched.
+        wrapper.write_text(source.replace("args = sys.argv[1:]", "sys.stdin.read()\nargs = sys.argv[1:]"))
+        packet = self.root / 'capture-packet'
+        (packet / 'linear/related').mkdir(parents=True)
+        self.env['EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS'] = '0'
+        lib = fixtures.REPO_ROOT / 'agents/team/roles/potato/acceptance/lib'
+        result = self.run_cli('/bin/bash', '-c', r"""
+set -euo pipefail
+PACKET="$1"
+source "$2/evidence.sh"
+source "$2/linear.sh"
+EXPLICIT_TEST_CHECKS=()
+ISSUE=CAF-999
+REQUIRED_STATE='In Review'
+ORCA_BIN="$ORCA_CLI_COMMAND"
+blocked() { printf 'Verdict: BLOCKED\n%s\n' "$1"; exit 3; }
+init_evidence
+fetch_linear
+finalize_evidence
+""", 'capture-related', str(packet), str(lib))
+        records = [json.loads(row) for row in (packet / 'evidence.jsonl').read_text().splitlines()]
+        related = [r for r in records if r['key'] == 'linear.related.CAF-998']
+        count = sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-998'] for c in self.calls())
+        return result, packet, related, count
+
+    def test_runtime_unavailable_retries_once_then_acquires(self):
+        response = {'ok': False, 'error': {'code': 'runtime_unavailable'}}
+        result, packet, records, count = self.capture_related_with_failures(response)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(count, 2)
+        self.assertEqual([(r['status'], r['exitCode']) for r in records], [('acquired', 0)])
+        self.assertIn('runtime_unavailable のため1回再試行', records[0]['detail'])
+        self.assertTrue(json.loads((packet / 'evidence.json').read_text())['complete'])
+        self.assertTrue(json.loads((packet / 'linear/related/CAF-998.json').read_text())['ok'])
+        self.assertEqual((packet / 'linear/related/CAF-998.json.err').read_text(), '')
+
+    def test_runtime_unavailable_retry_failure_still_blocks(self):
+        response = {'ok': False, 'error': {'code': 'runtime_unavailable'}}
+        result, packet, records, count = self.capture_related_with_failures(response, failures=2)
+        self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
+        self.assertIn('Verdict: BLOCKED', result.stdout)
+        self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
+        self.assertEqual(count, 2)
+        self.assertEqual([(r['status'], r['exitCode']) for r in records], [('failed', 1)])
+        self.assertIn('runtime_unavailable のため1回再試行', records[0]['detail'])
+        self.assertEqual(json.loads((packet / 'linear/related/CAF-998.json').read_text()), response)
+
+    def test_other_runtime_error_does_not_retry(self):
+        response = {'ok': False, 'error': {'code': 'not_found'}}
+        result, _, records, count = self.capture_related_with_failures(response)
+        self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
+        self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
+        self.assertEqual(count, 1)
+        self.assertEqual(records[0]['status'], 'failed')
+        self.assertNotIn('再試行', records[0]['detail'])
+
+    def test_non_json_failure_does_not_retry(self):
+        result, _, records, count = self.capture_related_with_failures({}, raw_stdout='runtime unavailable')
+        self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
+        self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
+        self.assertEqual(count, 1)
+        self.assertEqual(records[0]['status'], 'failed')
+        self.assertNotIn('再試行', records[0]['detail'])
+
+    def test_exit_zero_runtime_unavailable_does_not_retry(self):
+        response = {'ok': False, 'error': {'code': 'runtime_unavailable'}}
+        result, _, records, count = self.capture_related_with_failures(response, rc=0)
+        self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
+        self.assertIn('関連 Issue CAF-998 の応答が不正', result.stdout)
+        self.assertEqual(count, 1)
+        self.assertFalse(any('再試行' in r['detail'] for r in records))
+
     def test_initial_related_fetch_failure_stops_as_acquisition_failure(self):
         self.initial_related_response({'ok': False, 'code': 'runtime_unavailable'}, 1)
         result = self.review('--packet-only')
