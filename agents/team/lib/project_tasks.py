@@ -159,6 +159,8 @@ def _execute(orca, record, job, prompt, model, effort, metadata):
         workspaces.create_checkout(orca, record, job)
     else:
         workspaces.existing_checkout(orca, record)
+    if is_development(record) and not record.get('requestedBranch'):
+        record['requestedBranch'] = observe(record['targetPath'])['branch']
     if record.get('expectedSha') and (observe(record['targetPath'])['dirty'] or record['baseSha'] != record['expectedSha']):
         raise ValueError('実行直前にレビューの固定版が変化している')
     spec = execution_spec(record['role'], Path(record['targetPath']), task_prompt(record, prompt),
@@ -189,7 +191,10 @@ def _collect(orca, record, job, returncode):
                          'externalState': 'not-verified', 'formalVerdict': 'not-issued'}
     if development and not returncode and record['stage'] == 'collected':
         from engineering_handoff import prepare_review
-        record['handoff'].update(prepare_review(orca, record, job))
+        if record['after']['dirty'] or record['after']['headSha'] == record['baseSha']:
+            record['handoff'].update(nextRole='banana', status='pending-coordinator-commit')
+        else:
+            record['handoff'].update(prepare_review(orca, record, job))
     if record['cleanup'] in ('removal-unconfirmed', 'terminal-close-unconfirmed-retained'):
         record['returncode'] = 4
     save(job / 'record.json', record)

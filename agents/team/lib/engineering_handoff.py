@@ -37,9 +37,13 @@ def prepare_review(orca, record, job):
     target = observe(review['targetPath'])
     if target['dirty'] or target['headSha'] != current['headSha']:
         raise ValueError('レビュー checkout が固定した成果と一致しない。両方を保持')
+    committed_by = record.get('handoff', {}).get('committedBy')
+    provenance = ('実装は ' + record['workerBackend'] + ' の worker、commit は '
+                  + ('Banana' if committed_by == 'banana' else record['workerBackend'] + ' の worker'))
     request = review_job / 'request.md'
     request.write_text('Banana の開発成果を、実装に未関与の担当として確認する。\n'
                        '開発担当: banana\n実装 backend: ' + record['workerBackend']
+                       + '\n' + provenance
                        + '\n依頼 ID: ' + record['taskId']
                        + '\n固定 full HEAD SHA: ' + current['headSha']
                        + '\n開発 checkout: ' + record['targetPath']
@@ -52,5 +56,7 @@ def prepare_review(orca, record, job):
                    worktreeId=review['worktreeId'], targetPath=review['targetPath'],
                    implementationWorktreeId=record['worktreeId'], reviewPlan=plan,
                    requestPath=str(request), formalVerdict='not-issued', startsSession=False)
+    if committed_by == 'banana':
+        handoff.update(committedBy='banana', commitSha=current['headSha'])
     save(review_job / 'handoff.json', handoff)
     return handoff

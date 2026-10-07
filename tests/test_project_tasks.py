@@ -4,6 +4,7 @@ import fcntl
 import io
 import json
 import os
+import runpy
 from pathlib import Path
 import shlex
 import subprocess
@@ -498,7 +499,15 @@ class ProjectTaskTests(unittest.TestCase):
     def test_uncommitted_codex_development_work_is_retained_without_review_allocation(self):
         os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'dirty'
         rc, record = self.run_job(self.development_plan())
-        self.assertEqual(rc, 4)
+        self.assertEqual(rc, 0)
+        self.assertEqual(record['stage'], 'collected')
+        self.assertEqual(record['handoff']['status'], 'pending-coordinator-commit')
+        self.assertEqual(record['handoff']['nextRole'], 'banana')
+        self.assertEqual(record['handoff']['formalVerdict'], 'not-issued')
+        calls = len(self.calls)
+        self.assertEqual(self.run_job(self.development_plan())[0], 0)
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(self.model_calls(), 1)
         self.assertEqual(len(self.worktrees), 1)
         self.assertTrue((Path(record['targetPath']) / 'change.txt').is_file())
         self.assertNotEqual(record['handoff']['nextRole'], 'review')
@@ -509,7 +518,67 @@ class ProjectTaskTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(self.worktrees), 1)
         self.assertEqual(record['handoff']['nextRole'], 'banana')
-        self.assertEqual(record['handoff']['status'], 'no-implementation-commit')
+        self.assertEqual(record['handoff']['status'], 'pending-coordinator-commit')
+
+    def review_preview(self):
+        review_saved = runpy.run_path(str(PACKAGE / 'bin/banana'))['review_saved']
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            rc = review_saved(['--repo', str(self.repo), '--task-id', 'fixture-task', '--dry-run'])
+        return rc, json.loads(output.getvalue())
+
+    def test_coordinator_commit_unblocks_review_and_records_provenance(self):
+        os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'dirty'
+        plan = self.development_plan()
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        target = Path(record['targetPath'])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            self.review_preview()
+        self.assertEqual(error.exception.code, 2)
+        self.assertEqual(len(self.worktrees), 1)
+        self.git('add', 'change.txt', cwd=target)
+        self.git('commit', '-m', 'Banana fixture commit', cwd=target)
+        head = self.git('rev-parse', 'HEAD', cwd=target)
+        rc, review = self.review_preview()
+        self.assertEqual(rc, 0)
+        self.assertEqual(review['headSha'], head)
+        saved = json.loads((Path(plan['jobPath']) / 'record.json').read_text())
+        self.assertEqual(saved['after']['headSha'], head)
+        self.assertEqual(saved['handoff']['status'], 'pending-independent-review')
+        self.assertEqual(saved['handoff']['committedBy'], 'banana')
+        self.assertEqual(saved['handoff']['commitSha'], head)
+        self.assertEqual(saved['handoff']['formalVerdict'], 'not-issued')
+        request = Path(saved['handoff']['requestPath']).read_text()
+        self.assertIn('実装は codex の worker、commit は Banana', request)
+        receipt = json.loads((Path(plan['jobPath']) / 'review/handoff.json').read_text())
+        self.assertEqual(receipt['committedBy'], 'banana')
+        self.assertEqual(receipt['commitSha'], head)
+        self.assertEqual(len(self.worktrees), 2)
+        calls = len(self.calls)
+        self.assertEqual(self.review_preview()[0], 0)
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(self.model_calls(), 1)
+
+    def test_coordinator_commit_review_rejects_base_head_and_wrong_branch(self):
+        os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'none'
+        plan = self.development_plan()
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        target = Path(record['targetPath'])
+        for condition in ('base-head', 'wrong-branch'):
+            with self.subTest(condition=condition):
+                if condition == 'wrong-branch':
+                    self.git('commit', '--allow-empty', '-m', 'Banana fixture commit', cwd=target)
+                    self.git('checkout', '-b', 'unexpected', cwd=target)
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    self.review_preview()
+                self.assertEqual(error.exception.code, 2)
+                saved = json.loads((Path(plan['jobPath']) / 'record.json').read_text())
+                self.assertEqual(saved['handoff']['status'], 'pending-coordinator-commit')
+                self.assertNotIn('committedBy', saved['handoff'])
+                self.assertEqual(len(self.worktrees), 1)
+        self.assertEqual(self.model_calls(), 1)
 
     def test_empty_or_failed_codex_development_result_never_allocates_review(self):
         for behavior in ('empty', 'error'):

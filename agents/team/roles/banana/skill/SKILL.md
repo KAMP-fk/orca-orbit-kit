@@ -95,6 +95,7 @@ banana develop --repo <checkout> --task-id CAF-<n> --from-role tomato --prompt-f
 banana review  --repo <checkout> --task-id CAF-<n>            # 固定 full SHA から Potato checkout へ
 ```
 
+- worker は commit できない前提。未コミット成果を保持し、Banana が差分を読んで commit してから `banana review` へ渡す。
 - `--repo` は Orca 登録済みの checkout。concafe は task-id `CAF-<n>`、branch は `codex/caf-<n>-<識別子>`
   （`^(claude|codex|kakeru9917)/.+$` の外は auto-ready / auto-merge が**黙って skip する**）。
   **worktree を再利用するときは、checkout されている branch 名を最初に見る。**

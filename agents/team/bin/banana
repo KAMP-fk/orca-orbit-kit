@@ -13,9 +13,9 @@ sys.path.insert(0, str(ROOT / 'lib'))
 
 def review_saved(argv):
     from checkout_context import common_dir, require_checkout
-    from project_tasks import is_development, job_key, job_path
+    from project_tasks import is_development, job_key, job_path, locked_job
     from review_routing import review_plan
-    from role_contract import local_orca_only
+    from role_contract import local_orca_only, orca_command
     parser = argparse.ArgumentParser(description='保存済み開発成果を独立 Potato に渡す', allow_abbrev=False)
     parser.add_argument('--repo', required=True, type=Path)
     parser.add_argument('--task-id', required=True)
@@ -24,23 +24,43 @@ def review_saved(argv):
     try:
         local_orca_only()
         job = job_path(job_key(common_dir(require_checkout(args.repo)), args.task_id))
-        record = json.loads((job / 'record.json').read_text())
-        handoff = record['handoff']
-        if record['role'] != 'banana' or not is_development(record) or handoff.get('nextRole') != 'review':
-            raise ValueError('Review に渡せる開発成果がない')
-        implementation = require_checkout(record['targetPath'])
-        if implementation['dirty'] or implementation['headSha'] != handoff['headSha']:
-            raise ValueError('開発成果が固定版から変化している。現在の成果を再確認する')
-        saved = handoff['reviewPlan']
-        request = Path(handoff['requestPath'])
-        if hashlib.sha256(request.read_bytes()).hexdigest() != saved['request']['sha256']:
-            raise ValueError('レビューの依頼内容が保存時から変化している')
-        plan = review_plan(saved['kind'], handoff['targetPath'], prompt_file=request, sha=handoff['headSha'])
-        if plan['checkoutDirty']:
-            raise ValueError('レビュー checkout が変化している')
-        if args.dry_run or not plan['executableHere']:
-            print(json.dumps(plan, ensure_ascii=False, indent=2))
-            return 0 if args.dry_run else 3
+        with locked_job(job):
+            record = json.loads((job / 'record.json').read_text())
+            handoff = record['handoff']
+            if (record['role'] == 'banana' and is_development(record)
+                    and handoff.get('status') == 'pending-coordinator-commit'
+                    and handoff.get('nextRole') == 'banana'):
+                from engineering_handoff import prepare_review
+                from task_session import save
+                implementation = require_checkout(record['targetPath'])
+                if (record.get('returncode') != 0 or record.get('stage') != 'collected'
+                        or implementation['dirty'] or implementation['headSha'] == record['baseSha']
+                        or not record.get('requestedBranch')
+                        or implementation['branch'] != record['requestedBranch']):
+                    raise ValueError('Banana の commit 待ち: clean・base から進んだ HEAD・指定 branch が必要')
+                if handoff.get('commitSha') and handoff['commitSha'] != implementation['headSha']:
+                    raise ValueError('引渡し準備中に Banana の commit が変化している。保持して停止')
+                record['after'] = implementation
+                handoff.update(committedBy='banana', commitSha=implementation['headSha'],
+                               headSha=implementation['headSha'], dirty=False)
+                save(job / 'record.json', record)  # Pin before the existing checkout-creation fence.
+                handoff.update(prepare_review(orca_command(), record, job))
+                save(job / 'record.json', record)
+            if record['role'] != 'banana' or not is_development(record) or handoff.get('nextRole') != 'review':
+                raise ValueError('Review に渡せる開発成果がない')
+            implementation = require_checkout(record['targetPath'])
+            if implementation['dirty'] or implementation['headSha'] != handoff['headSha']:
+                raise ValueError('開発成果が固定版から変化している。現在の成果を再確認する')
+            saved = handoff['reviewPlan']
+            request = Path(handoff['requestPath'])
+            if hashlib.sha256(request.read_bytes()).hexdigest() != saved['request']['sha256']:
+                raise ValueError('レビューの依頼内容が保存時から変化している')
+            plan = review_plan(saved['kind'], handoff['targetPath'], prompt_file=request, sha=handoff['headSha'])
+            if plan['checkoutDirty']:
+                raise ValueError('レビュー checkout が変化している')
+            if args.dry_run or not plan['executableHere']:
+                print(json.dumps(plan, ensure_ascii=False, indent=2))
+                return 0 if args.dry_run else 3
         command = plan['argv'] + ['--task-id', 'review-' + record['key'], '--from-role', 'banana']
         os.execv(sys.executable, command)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:

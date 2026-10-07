@@ -36,13 +36,15 @@ Banana を進行担当として専用 checkout を作る。Orca の親子表示�
 別プロジェクトの開発 checkout はその対象 workspace を親にする。Banana との関係は coordinator として記録する。
 同じ repo の案件は Banana ホームを親にできる。元の未コミット変更はコピーしない。
 concafe は task-id に `CAF-<番号>` の案件 ID を指定し、既存 CI 互換の `codex/caf-<番号>-<識別子>` branch を使う。
-Codex は渡された checkout だけで実装・必要な検査・成果 commit を行う。
+Codex は渡された checkout だけで実装・必要な検査を行う。
+worker は commit できない前提で、Banana が差分を読んで commit してから `banana review` へ渡す。
 受入条件、push / PR / 外部更新の実際の委任は元の依頼と現行プロジェクト契約に従う。
 
 ## レビューへ渡す
 
 開発の結果と終了を保存してから、clean な実装 commit の現在 full SHA を確かめる。
-未コミット成果は保持して Banana に返す。commit が増えていない場合はその結果を Banana に返す。
+未コミット成果・base のままの HEAD は `pending-coordinator-commit` として保持して Banana に返す。
+`banana review` は clean・base から進んだ HEAD・指定 branch を確認し、commit 担当と full SHA を保存する（dry-run でも引渡し準備は保存する）。
 commit が増えた場合はその SHA から別の Potato checkout を作り、開発 checkout の子として記録する。
 実装の変更や commit を削除せず、両 checkout を統合・レビュー待ちとして保全する。
 
