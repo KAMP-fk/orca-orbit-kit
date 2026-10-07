@@ -291,6 +291,10 @@ def validate_verdict(packet):
     require(values['Review Mode'] == mode, 'Review Mode does not match launcher context')
     require(bool(values['Reviewer']) and values['Reviewer'].casefold() not in ('unknown', '-', 'n/a', '不明', 'なし') and re.search(r'<[^>]*>', values['Reviewer']) is None, 'Reviewer identity is missing or a placeholder')
     require(values['Involvement'] in ('NOT_INVOLVED', 'INVOLVED', 'UNKNOWN'), 'invalid Involvement declaration')
+    summary = report[markers['Summary'].end():markers['Acceptance Criteria'].start()]
+    require('<関与の表明（未関与なら定型文）>' not in summary, 'Summary involvement declaration is a placeholder')
+    non_involvement = '本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。'
+    require(values['Involvement'] == 'NOT_INVOLVED' or non_involvement not in report, 'non-involvement declaration contradicts Involvement')
     require(values['CI'] in ('PASS', 'FAIL', 'UNKNOWN') and values['Tests'] in ('PASS', 'FAIL', 'UNKNOWN'), 'invalid CI or Tests value')
     selected = []
     for candidate in meta['prCandidates']:
@@ -315,7 +319,6 @@ def validate_verdict(packet):
         if mode == 'fixed-pr':
             if pr['url'].lower().startswith('https://github.com/kamp-fk/concafe-techo/pull/'):
                 require(meta.get('backend') == 'claude' and meta.get('model') == 'claude-opus-5-5', 'concafe fixed-pr PASS requires approved Claude Opus backend/model')
-            summary = report[markers['Summary'].end():markers['Acceptance Criteria'].start()]
             require(not disclaims_fixed_review_role(report, summary), 'fixed-pr PASS disclaims its independent review role')
         require(values['CI'] == values['Tests'] == 'PASS', 'PASS requires CI and Tests PASS')
         criteria = report[markers['Acceptance Criteria'].end():markers['Findings'].start()]
