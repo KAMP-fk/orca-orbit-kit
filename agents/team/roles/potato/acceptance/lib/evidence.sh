@@ -27,7 +27,8 @@ evidence_capture() { # key path required scope command ...
   shift 4
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   "$@" </dev/null > "$path" 2> "$path.err" || rc=$?
-  if [ "$rc" -ne 0 ] &&
+  # Retry only the configured Orca CLI on its explicit transient runtime error.
+  if [ "$1" = "${ORCA_BIN:-}" ] && [ "$rc" -ne 0 ] &&
     jq -se 'length == 1 and (.[0] | type == "object" and .ok == false and .error.code == "runtime_unavailable")' "$path" >/dev/null 2>&1; then
     sleep "${EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS:-2}"
     retry_detail="; runtime_unavailable のため1回再試行"

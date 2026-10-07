@@ -7,6 +7,21 @@ import unittest
 import test_agent_refactor as fixtures
 SHA, BASE_SHA = fixtures.SHA, fixtures.BASE_SHA
 
+# Verbatim stdout from CAF-396 and CAF-374 (identical packet artifacts).
+RUNTIME_UNAVAILABLE_JSON = '''{
+  "id": "local",
+  "ok": false,
+  "error": {
+    "code": "runtime_unavailable",
+    "message": "The Orca runtime closed the connection before responding. Restart Orca and try again."
+  },
+  "_meta": {
+    "runtimeId": null
+  }
+}
+'''
+RUNTIME_UNAVAILABLE = json.loads(RUNTIME_UNAVAILABLE_JSON)
+
 
 class EvidenceCase(unittest.TestCase):
     # Reuse fixture setup/helpers without inheriting the older test methods.
@@ -83,8 +98,8 @@ class EvidenceCase(unittest.TestCase):
         self.config.update(issue_update={'description': 'new requirements'}, issue_update_call=3)
         self.assert_blocked(self.review(), model_expected=True)
 
-    def initial_related_response(self, response, rc):
-        # Override only the first related fetch; later calls use the normal fixture.
+    def initial_related_response(self, response, rc, failures=1):
+        # Override the requested number of related fetches; later calls use the normal fixture.
         wrapper = self.bin / 'orca-initial-related'
         wrapper.write_text('''#!/usr/bin/python3
 import json, os, sys
@@ -93,7 +108,7 @@ args = sys.argv[1:]
 log = Path(os.environ['CALL_LOG'])
 call = ['orca'] + args
 previous = [json.loads(row) for row in log.read_text().splitlines()] if log.exists() else []
-if args[:3] == ['linear', 'issue', 'CAF-998'] and not any(row[:4] == call[:4] for row in previous):
+if args[:3] == ['linear', 'issue', 'CAF-998'] and sum(row[:4] == call[:4] for row in previous) < %r:
     with log.open('a') as stream:
         stream.write(json.dumps(call) + '\\n')
     print(%r)
@@ -101,21 +116,20 @@ if args[:3] == ['linear', 'issue', 'CAF-998'] and not any(row[:4] == call[:4] fo
     sys.exit(%r)
 orca = str(Path(__file__).with_name('orca'))
 os.execv(orca, [orca] + args)
-''' % (json.dumps(response), rc))
+''' % (failures, json.dumps(response), rc))
         wrapper.chmod(0o755)
         self.env['ORCA_CLI_COMMAND'] = str(wrapper)
         self.config = {'relations': [{'relatedIssue': {'identifier': 'CAF-998'}}]}
 
     def capture_related_with_failures(self, response, rc=1, failures=1, raw_stdout=None):
-        self.initial_related_response(response, rc)
+        self.initial_related_response(response, rc, failures=failures)
         wrapper = Path(self.env['ORCA_CLI_COMMAND'])
-        source = wrapper.read_text().replace(
-            "not any(row[:4] == call[:4] for row in previous)",
-            "sum(row[:4] == call[:4] for row in previous) < " + str(failures))
+        source = wrapper.read_text()
         if raw_stdout is not None:
             source = source.replace('print(%r)' % json.dumps(response), 'print(%r)' % raw_stdout)
         # Both attempts must leave the related-Issue loop's stdin untouched.
         wrapper.write_text(source.replace("args = sys.argv[1:]", "sys.stdin.read()\nargs = sys.argv[1:]"))
+        self.config['relations'].append({'relatedIssue': {'identifier': 'CAF-9990'}})
         packet = self.root / 'capture-packet'
         (packet / 'linear/related').mkdir(parents=True)
         self.env['EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS'] = '0'
@@ -140,8 +154,8 @@ finalize_evidence
         return result, packet, related, count
 
     def test_runtime_unavailable_retries_once_then_acquires(self):
-        response = {'ok': False, 'error': {'code': 'runtime_unavailable'}}
-        result, packet, records, count = self.capture_related_with_failures(response)
+        response = RUNTIME_UNAVAILABLE
+        result, packet, records, count = self.capture_related_with_failures(response, raw_stdout=RUNTIME_UNAVAILABLE_JSON)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(count, 2)
         self.assertEqual([(r['status'], r['exitCode']) for r in records], [('acquired', 0)])
@@ -149,9 +163,15 @@ finalize_evidence
         self.assertTrue(json.loads((packet / 'evidence.json').read_text())['complete'])
         self.assertTrue(json.loads((packet / 'linear/related/CAF-998.json').read_text())['ok'])
         self.assertEqual((packet / 'linear/related/CAF-998.json.err').read_text(), '')
+        self.assertEqual(sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-9990'] for c in self.calls()), 1)
+        self.assertEqual(json.loads((packet / 'linear/related/CAF-9990.json').read_text())
+                         ['result']['issue']['identifier'], 'CAF-9990')
+        facts = json.loads((packet / 'evidence.json').read_text())
+        self.assertTrue(any(r['key'] == 'linear.related.CAF-9990' and r['status'] == 'acquired'
+                            for r in facts['observations']))
 
     def test_runtime_unavailable_retry_failure_still_blocks(self):
-        response = {'ok': False, 'error': {'code': 'runtime_unavailable'}}
+        response = RUNTIME_UNAVAILABLE
         result, packet, records, count = self.capture_related_with_failures(response, failures=2)
         self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
         self.assertIn('Verdict: BLOCKED', result.stdout)
@@ -179,15 +199,57 @@ finalize_evidence
         self.assertNotIn('再試行', records[0]['detail'])
 
     def test_exit_zero_runtime_unavailable_does_not_retry(self):
-        response = {'ok': False, 'error': {'code': 'runtime_unavailable'}}
+        response = RUNTIME_UNAVAILABLE
         result, _, records, count = self.capture_related_with_failures(response, rc=0)
         self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
         self.assertIn('関連 Issue CAF-998 の応答が不正', result.stdout)
         self.assertEqual(count, 1)
         self.assertFalse(any('再試行' in r['detail'] for r in records))
 
+    def test_non_orca_runtime_unavailable_does_not_retry(self):
+        self.env['ORCA_CLI_COMMAND'] = str(self.bin / 'orca')
+        lib = fixtures.REPO_ROOT / 'agents/team/roles/potato/acceptance/lib'
+        for command in ('gh', 'git', 'python'):
+            with self.subTest(command=command):
+                self.log.unlink(missing_ok=True)
+                wrapper = self.bin / ('non-orca-' + command)
+                wrapper.write_text('''#!/usr/bin/python3
+import os, sys
+from pathlib import Path
+with Path(os.environ['CALL_LOG']).open('a') as stream:
+    stream.write(%r + '\\n')
+print(%r)
+sys.exit(1)
+''' % (json.dumps([command]), RUNTIME_UNAVAILABLE_JSON))
+                wrapper.chmod(0o755)
+                packet = self.root / ('non-orca-packet-' + command)
+                packet.mkdir()
+                self.env['EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS'] = '0'
+                result = self.run_cli('/bin/bash', '-c', r"""
+set -uo pipefail
+PACKET="$1"
+source "$2/evidence.sh"
+EXPLICIT_TEST_CHECKS=()
+ORCA_BIN="$ORCA_CLI_COMMAND"
+init_evidence
+rc=0
+evidence_capture fixture "$PACKET/result.json" true fixture "$3" || rc=$?
+finalize_evidence
+exit "$rc"
+""", 'capture-non-orca', str(packet), str(lib), str(wrapper))
+                self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+                self.assertEqual(self.calls(), [[command]])
+                facts = json.loads((packet / 'evidence.json').read_text())
+                self.assertFalse(facts['complete'])
+                self.assertEqual(len(facts['observations']), 1)
+                record = facts['observations'][0]
+                self.assertEqual((record['status'], record['exitCode']), ('failed', 1))
+                self.assertNotIn('再試行', record['detail'])
+                self.assertEqual(json.loads((packet / 'result.json').read_text()), RUNTIME_UNAVAILABLE)
+
     def test_initial_related_fetch_failure_stops_as_acquisition_failure(self):
-        self.initial_related_response({'ok': False, 'code': 'runtime_unavailable'}, 1)
+        self.env['EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS'] = '0'
+        self.initial_related_response(RUNTIME_UNAVAILABLE, 1, failures=2)
         result = self.review('--packet-only')
         self.assert_blocked(result)
         self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
@@ -197,7 +259,7 @@ finalize_evidence
         records = [json.loads(row) for row in (packet / 'evidence.jsonl').read_text().splitlines()]
         self.assertEqual([(r['status'], r['exitCode']) for r in records if r['key'] == 'linear.related.CAF-998'], [('failed', 1)])
         self.assertFalse(any('changed' in r['detail'] for r in records))
-        self.assertEqual(sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-998'] for c in self.calls()), 1)
+        self.assertEqual(sum(c[:4] == ['orca', 'linear', 'issue', 'CAF-998'] for c in self.calls()), 2)
         self.assertFalse((packet / 'linear/issue-acquired.json').exists())
 
     def test_second_related_initial_failure_with_stdin_consuming_orca(self):
@@ -211,20 +273,21 @@ args = sys.argv[1:]
 if args[:3] == ['linear', 'issue', 'CAF-998']:
     with Path(os.environ['CALL_LOG']).open('a') as stream:
         stream.write(json.dumps(['orca'] + args) + '\\n')
-    print(json.dumps({'ok': False, 'code': 'runtime_unavailable'}))
+    print(%r)
     print('second related fixture diagnostic', file=sys.stderr)
     sys.exit(1)
 orca = str(Path(__file__).with_name('orca'))
 os.execv(orca, [orca] + args)
-''')
+''' % RUNTIME_UNAVAILABLE_JSON)
         wrapper.chmod(0o755)
         self.env['ORCA_CLI_COMMAND'] = str(wrapper)
+        self.env['EVIDENCE_RUNTIME_RETRY_DELAY_SECONDS'] = '0'
         self.config = {'relations': [{'relatedIssue': {'identifier': rid}}
                                      for rid in ('CAF-997', 'CAF-998')]}
         result = self.review('--packet-only')
         counts = {rid: sum(c[:4] == ['orca', 'linear', 'issue', rid] for c in self.calls())
                   for rid in ('CAF-997', 'CAF-998')}
-        self.assertEqual(counts, {'CAF-997': 1, 'CAF-998': 1}, result.stderr + result.stdout)
+        self.assertEqual(counts, {'CAF-997': 1, 'CAF-998': 2}, result.stderr + result.stdout)
         self.assert_blocked(result)
         self.assertIn('関連 Issue CAF-998 の状態を取得できないため、判定を有効化しない。', result.stdout)
         self.assertNotIn('更新された', result.stdout)
@@ -240,7 +303,7 @@ os.execv(orca, [orca] + args)
         self.assertFalse((packet / 'linear/issue-acquired.json').exists())
 
     def test_initial_related_malformed_response_stops_before_recheck(self):
-        for response in ({'ok': False, 'code': 'runtime_unavailable'},
+        for response in (RUNTIME_UNAVAILABLE,
                          {'ok': True, 'result': {'issue': {'identifier': 'CAF-998'}}}):
             with self.subTest(response=response):
                 self.log.unlink(missing_ok=True)
