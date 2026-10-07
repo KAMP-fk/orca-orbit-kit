@@ -12,6 +12,8 @@ import unittest
 
 RELAY = Path(__file__).resolve().parents[1] / 'agents/team/roles/potato/relay/bin/review-relay'
 SHA = 'a' * 40
+COMMENT_URL = 'https://github.com/fixture/repo/pull/999#issuecomment-123'
+PR_URL = 'https://github.com/fixture/repo/pull/999'
 FIXTURE_CLI = r'''
 import json
 import os
@@ -44,9 +46,31 @@ if name == 'gh':
     elif args[:2] == ['pr', 'checks']:
         print(config.get('checks', 'validate\tpass\tfixture-url'))
     elif args[:3] == ['api', '--method', 'POST']:
+        if config.get('persist_status') and not config.get('post_rc', 0):
+            config.setdefault('statuses', []).append({
+                'context': 'review:passed', 'state': 'success',
+                'target_url': next(a.split('=', 1)[1] for a in args if a.startswith('target_url=')),
+                'created_at': '2026-10-07T12:00:00Z', 'id': 100,
+            })
+            (root / 'config.json').write_text(json.dumps(config))
         sys.exit(config.get('post_rc', 0))
-    elif args[0] == 'api' and args[1].endswith('/statuses'):
+    elif args[0] == 'api' and any('/commits/' in a and '/statuses' in a for a in args):
         print(json.dumps(config.get('statuses', [])))
+        if '--paginate' in args:
+            for page in config.get('status_pages', []):
+                print(json.dumps(page))
+        sys.exit(config.get('statuses_rc', 0))
+    elif args[0] == 'api' and args[1].endswith('/issues/comments/123'):
+        comment = config.get('comment', {
+            'html_url': 'https://github.com/fixture/repo/pull/999#issuecomment-123',
+            'issue_url': 'https://api.github.com/repos/fixture/repo/issues/999',
+            'id': 123, 'body': config.get('record_body', ''),
+        })
+        if '-q' in args:
+            print(comment.get('body', '') if isinstance(comment, dict) else '')
+        else:
+            print(json.dumps(comment))
+        sys.exit(config.get('comment_rc', 0))
     else:
         sys.exit('Unexpected fixture gh request: ' + repr(args))
     sys.exit(0)
@@ -78,10 +102,12 @@ class RelayCase(unittest.TestCase):
         self.record.write_text(self.verdict.read_text() + self.identities)
         self.config = {}
 
-    def run_relay(self, *args, record=None):
-        (self.root / 'config.json').write_text(json.dumps(self.config))
-        return subprocess.run([str(RELAY), '999', str(record or self.record),
-                               '--repo', 'fixture/repo', '--verdict', str(self.verdict), *args], env=self.env,
+    def run_relay(self, *args, record=None, repo='fixture/repo'):
+        config = dict(self.config)
+        config.setdefault('record_body', self.record.read_text() if self.record.exists() else '')
+        (self.root / 'config.json').write_text(json.dumps(config))
+        return subprocess.run([str(RELAY), '999', str(record or COMMENT_URL),
+                               '--repo', repo, '--verdict', str(self.verdict), *args], env=self.env,
                               text=True, capture_output=True)
 
     def calls(self):
@@ -118,7 +144,7 @@ class RelayCase(unittest.TestCase):
             'gh', 'api', '--method', 'POST', 'repos/fixture/repo/statuses/' + SHA,
             '-f', 'state=success', '-f', 'context=review:passed',
             '-f', 'description=independent review PASS (relayed by review-relay)',
-            '-f', 'target_url=' + str(self.record),
+            '-f', 'target_url=' + COMMENT_URL,
         ]])
 
     def test_model_refuse_records_parent_without_posting(self):
@@ -235,6 +261,223 @@ class RelayCase(unittest.TestCase):
                 self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
                 self.assertEqual(self.posts(), [])
                 self.assertEqual(self.audit(), '')
+
+    def status(self, target_url=PR_URL, *, status_id=1,
+               created_at='2026-10-07T11:00:00Z', state='success'):
+        return {'context': 'review:passed', 'state': state, 'target_url': target_url,
+                'created_at': created_at, 'id': status_id}
+
+    def correction_fixture(self, statuses=None):
+        self.config = {'statuses': statuses if statuses is not None else [self.status()],
+                       'record_body': self.record.read_text()}
+
+    def assert_correction_rejected(self, result, reason):
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(reason, result.stderr)
+        self.assertEqual(self.posts(), [])
+        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+        self.assertEqual(self.audit(), '')
+
+    def test_comment_response_must_match_this_pr_before_model_in_both_modes(self):
+        valid = {'html_url': COMMENT_URL,
+                 'issue_url': 'https://api.github.com/repos/fixture/repo/issues/999',
+                 'id': 123, 'body': self.record.read_text()}
+        cases = [
+            ('other-pr', {**valid, 'issue_url': valid['issue_url'].replace('/999', '/998')}),
+            ('other-html-url', {**valid, 'html_url': COMMENT_URL.replace('/999', '/998')}),
+            ('canonical-repo-case', {**valid, 'html_url': COMMENT_URL.replace('fixture', 'Fixture')}),
+            ('other-id', {**valid, 'id': 124}),
+            ('missing-id', {k: v for k, v in valid.items() if k != 'id'}),
+            ('non-string-body', {**valid, 'body': [valid['body']]}),
+            ('missing-body', {k: v for k, v in valid.items() if k != 'body'}),
+            ('not-object', [valid]),
+        ]
+        for flags in ((), ('--correct-target-url',)):
+            for name, comment in cases:
+                with self.subTest(mode=flags, response=name):
+                    (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                    self.correction_fixture(None if flags else [])
+                    self.config['comment'] = comment
+                    self.assert_correction_rejected(
+                        self.run_relay(*flags), 'この PR の URL / id / 本文型と一致しない')
+
+    def test_comment_fetch_failure_rejects_in_both_modes(self):
+        for flags in ((), ('--correct-target-url',)):
+            with self.subTest(mode=flags):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture(None if flags else [])
+                # Even a valid partial response must not hide gh's failure.
+                self.config['comment_rc'] = 1
+                self.assert_correction_rejected(
+                    self.run_relay(*flags), 'レビュー記録のコメントを読めない')
+
+    def test_normal_mode_requires_this_pr_comment_url(self):
+        for url in (PR_URL, str(self.record),
+                    COMMENT_URL.replace('/999', '/998'),
+                    COMMENT_URL.replace('fixture/repo', 'other/repo'),
+                    PR_URL + '#issuecomment-0', COMMENT_URL + '/extra'):
+            with self.subTest(url=url):
+                self.assert_correction_rejected(
+                    self.run_relay(record=url), 'この PR の issue コメント URL')
+                self.assertEqual(self.calls(), [])
+
+    def test_repo_case_must_match_api_comment_urls_in_both_modes(self):
+        for flags in ((), ('--correct-target-url',)):
+            with self.subTest(mode=flags):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture(None if flags else [])
+                self.assert_correction_rejected(
+                    self.run_relay(*flags, repo='Fixture/repo',
+                                   record=COMMENT_URL.replace('fixture', 'Fixture')),
+                    'この PR の URL / id / 本文型と一致しない')
+
+    def test_incorrect_target_url_can_be_corrected_explicitly_with_model_and_audit(self):
+        self.correction_fixture()
+        result = self.run_relay('--correct-target-url', record=COMMENT_URL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.posts()), 1)
+        self.assertIn('target_url=' + COMMENT_URL, self.posts()[0])
+        self.assert_launcher(self.audit())
+        self.assertIn('訂正', self.audit())
+        self.assertIn(PR_URL + ' → ' + COMMENT_URL, self.audit())
+        model = next(c for c in self.calls() if c[0] == 'codex')
+        self.assertIn(PR_URL, model[-1])
+        self.assertIn(COMMENT_URL, model[-1])
+
+    def test_incorrect_target_url_without_flag_still_rejects_duplicate(self):
+        self.correction_fixture()
+        self.assert_correction_rejected(self.run_relay(record=COMMENT_URL), '二重に出さない')
+
+    def test_correct_success_url_rejects_even_with_correction_flag(self):
+        self.correction_fixture([self.status(COMMENT_URL)])
+        self.assert_correction_rejected(
+            self.run_relay('--correct-target-url', record=COMMENT_URL), '二重に出さない')
+
+    def test_correction_requires_this_pr_comment_url(self):
+        self.correction_fixture()
+        for url in ('https://github.com/fixture/repo/pull/998#issuecomment-123',
+                    'https://github.com/other/repo/pull/999#issuecomment-123',
+                    PR_URL, COMMENT_URL + '/extra', PR_URL + '#issuecomment-0', str(self.record)):
+            with self.subTest(url=url):
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url', record=url), 'この PR の issue コメント URL')
+
+    def test_second_correction_rejects_after_first_post_on_same_head(self):
+        self.correction_fixture()
+        self.config['persist_status'] = True
+        result = self.run_relay('--correct-target-url', record=COMMENT_URL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.config = json.loads((self.root / 'config.json').read_text())
+        (self.root / 'calls.jsonl').unlink()
+        first_audit = self.audit()
+        result = self.run_relay('--correct-target-url', record=COMMENT_URL)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('二重に出さない', result.stderr)
+        self.assertEqual(self.posts(), [])
+        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+        self.assertEqual(self.audit(), first_audit)
+
+    def test_correction_uses_latest_created_at_then_id_independent_of_response_order(self):
+        latest_url = PR_URL + '/latest'
+        self.correction_fixture([
+            self.status(PR_URL + '?older', status_id=999, created_at='2026-10-07T10:00:00Z'),
+            self.status(PR_URL, status_id=1),
+            self.status(latest_url, status_id=2),
+        ])
+        result = self.run_relay('--correct-target-url', record=COMMENT_URL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(latest_url + ' → ' + COMMENT_URL, self.audit())
+
+    def test_correction_same_timestamp_uses_larger_id_with_newest_first_response(self):
+        latest_url = PR_URL + '/latest'
+        self.correction_fixture([
+            self.status(latest_url, status_id=2),
+            self.status(PR_URL, status_id=1),
+        ])
+        result = self.run_relay('--correct-target-url')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(latest_url + ' → ' + COMMENT_URL, self.audit())
+
+    def test_correction_same_timestamp_newest_failure_first_blocks_stale_success(self):
+        self.correction_fixture([
+            self.status(state='failure', status_id=2), self.status(status_id=1),
+        ])
+        self.assert_correction_rejected(
+            self.run_relay('--correct-target-url'), '最新の review:passed が success でない')
+
+    def test_correction_rejects_invalid_status_timestamp_or_id(self):
+        valid = self.status()
+        cases = [
+            ('missing-created-at', {k: v for k, v in valid.items() if k != 'created_at'}),
+            ('timezone-offset', {**valid, 'created_at': '2026-10-07T20:00:00+09:00'}),
+            ('missing-id', {k: v for k, v in valid.items() if k != 'id'}),
+            ('fractional-id', {**valid, 'id': 1.5}),
+            ('zero-id', {**valid, 'id': 0}),
+        ]
+        for name, status in cases:
+            with self.subTest(status=name):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture([status])
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url'), '日時 / id が不正')
+
+    def test_correction_rejects_unreadable_status_pages(self):
+        cases = [
+            ('first-page-not-array', {'statuses': {'message': 'fixture error'}}),
+            ('later-page-not-array', {'status_pages': [{'message': 'fixture error'}]}),
+            ('gh-failed', {'statuses_rc': 1}),
+        ]
+        for name, config in cases:
+            with self.subTest(history=name):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture()
+                self.config.update(config)
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url'), 'status 履歴を読めない')
+                self.assertTrue(any('--paginate' in c for c in self.calls()))
+
+    def test_any_previous_correct_success_blocks_correction_including_later_pages(self):
+        self.correction_fixture()
+        self.config['status_pages'] = [[self.status(COMMENT_URL, created_at='2026-10-07T10:00:00Z')]]
+        self.assert_correction_rejected(
+            self.run_relay('--correct-target-url', record=COMMENT_URL), '二重に出さない')
+
+    def test_correction_does_not_overwrite_newer_failure_error_or_pending(self):
+        for state in ('failure', 'error', 'pending'):
+            with self.subTest(state=state):
+                self.correction_fixture([self.status(), self.status(state=state, status_id=2)])
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url', record=COMMENT_URL), '最新の review:passed が success でない')
+
+    def test_correction_requires_existing_success(self):
+        self.correction_fixture([])
+        self.assert_correction_rejected(
+            self.run_relay('--correct-target-url', record=COMMENT_URL), '訂正する success が無い')
+
+    def test_correction_still_checks_sha_identity_verbatim_and_ci(self):
+        cases = [
+            ({'record_body': self.record.read_text().replace(SHA, SHA[:12])}, 'full SHA が逐語で無い'),
+            ({'record_body': self.verdict.read_text()}, 'CAF-308 の行が無い'),
+            ({'record_body': self.record.read_text().replace('Reviewer: uninvolved', '')}, '判定の逐語を含んでいない'),
+            ({'checks': 'validate\tfail\tfixture-url'}, '失敗している check'),
+            ({'checks': 'validate\tpending\tfixture-url'}, 'pending の check'),
+        ]
+        for config, reason in cases:
+            with self.subTest(reason=reason):
+                self.correction_fixture()
+                self.config.update(config)
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url', record=COMMENT_URL), reason)
+
+    def test_correction_model_refusal_is_logged_without_post(self):
+        self.correction_fixture()
+        self.config['verdict'] = 'RELAY: REFUSE — fixture refusal'
+        result = self.run_relay('--correct-target-url', record=COMMENT_URL)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assert_launcher(self.audit())
+        self.assertIn('訂正', self.audit())
+        self.assertIn(PR_URL + ' → ' + COMMENT_URL, self.audit())
+        self.assertEqual(self.posts(), [])
 
 
 if __name__ == '__main__':

@@ -2,8 +2,8 @@
 # review-relay — review:passed を中継する専任。これ以外のことをしない。
 #
 # 使い方:
-#   review-relay <PR番号> <レビュー記録のURL> --verdict <判定ファイル>
-#                [--repo <owner/name>] [--dry-run]
+#   review-relay <PR番号> <この PR の issue コメント URL> --verdict <判定ファイル>
+#                [--repo <owner/name>] [--dry-run] [--correct-target-url]
 #
 #   --verdict は launcher が人に返した判定（packet の verdict.md 等）。
 #   **記録がその逐語を含まないと中継しない。**中継は要約しがちで、
@@ -28,20 +28,21 @@ readonly DEFAULT_REPO="KAMP-fk/concafe-techo"
 die()  { printf '拒否: %s\n' "$*" >&2; exit 1; }
 note() { printf '  %s\n' "$*"; }
 
-pr=""; record=""; verdict_file=""; repo="${DEFAULT_REPO}"; dry=0
+pr=""; record=""; verdict_file=""; repo="${DEFAULT_REPO}"; dry=0; correct_target_url=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo)    repo="${2:?--repo に値が無い}"; shift 2 ;;
     --verdict) verdict_file="${2:?--verdict に値が無い}"; shift 2 ;;
     --dry-run) dry=1; shift ;;
+    --correct-target-url) correct_target_url=1; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) if [ -z "$pr" ]; then pr="$1"; elif [ -z "$record" ]; then record="$1";
        else die "引数が多い: $1"; fi; shift ;;
   esac
 done
 
-[ -n "$pr" ]     || die "PR 番号が無い。使い方: review-relay <PR番号> <レビュー記録のURL>"
-[ -n "$record" ] || die "レビュー記録の URL が無い。**記録の無い中継はしない**"
+[ -n "$pr" ]     || die "PR 番号が無い。使い方: review-relay <PR番号> <この PR の issue コメント URL>"
+[ -n "$record" ] || die "この PR の issue コメント URL（レビュー記録）が無い。**記録の無い中継はしない**"
 [[ "$pr" =~ ^[0-9]+$ ]] || die "PR 番号が数字でない: ${pr}"
 [ -n "$verdict_file" ] || die "--verdict が無い。**判定の逐語を確かめずに中継しない**
        launcher が人に返した判定のファイル（packet の verdict.md 等）を渡すこと。
@@ -49,6 +50,12 @@ done
 [ -f "$verdict_file" ] || die "--verdict のファイルが無い: ${verdict_file}"
 command -v gh >/dev/null || die "gh が無い"
 [ -x "$CODEX" ]          || die "codex が無い: ${CODEX}"
+
+record_prefix="https://github.com/${repo}/pull/${pr}#issuecomment-"
+[[ "$record" == "$record_prefix"* && "${record#"$record_prefix"}" =~ ^[1-9][0-9]*$ ]] \
+  || die "記録先はこの PR の issue コメント URL でなければならない: ${record}"
+comment_id="${record#"$record_prefix"}"
+old_target_url=""
 
 mkdir -p "$LOG_DIR"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
@@ -84,20 +91,31 @@ pr_url="$(jq -r '.url' <<<"$pr_json")"
 title="$(jq -r '.title' <<<"$pr_json")"
 
 checks="$(gh pr checks "$pr" --repo "$repo" 2>/dev/null || true)"
-statuses="$(gh api "repos/${repo}/commits/${head_sha}/statuses" 2>/dev/null || echo '[]')"
-
-# レビュー記録の本文を取る（PR / issue コメントの URL、またはローカルファイル）
-record_body=""
-if [ -f "$record" ]; then
-  record_body="$(cat "$record")"
-elif [[ "$record" =~ issuecomment-([0-9]+) ]]; then
-  record_body="$(gh api "repos/${repo}/issues/comments/${BASH_REMATCH[1]}" -q .body 2>/dev/null || true)"
-elif [[ "$record" =~ /pull/([0-9]+)#?.*$ ]]; then
-  record_body="$(gh api "repos/${repo}/issues/${BASH_REMATCH[1]}/comments" \
-                   -q '.[].body' 2>/dev/null | tail -c 20000 || true)"
+if [ "$correct_target_url" = 1 ]; then
+  # 一度正しい success を出した head は、古いページに移っても訂正できない。
+  statuses="$(gh api --paginate "repos/${repo}/commits/${head_sha}/statuses?per_page=100" \
+    | jq -se 'if length > 0 and all(.[]; type == "array") then add
+              else error("Invalid status pages") end')" \
+    || die "訂正に必要な status 履歴を読めない"
+else
+  statuses="$(gh api "repos/${repo}/commits/${head_sha}/statuses" 2>/dev/null || echo '[]')"
 fi
+
+# 訂正・通常とも検証器と同じ条件を要求する。PR URL / ローカルパスでは
+# 打てても通らない status になる（#313）。正本: concafe-techo
+# 2dc5928dab6be0fe54c1ed507fde68481f9e687b .github/scripts/review-evidence.sh。
+comment="$(gh api "repos/${repo}/issues/comments/${comment_id}")" \
+  || die "レビュー記録のコメントを読めない: ${record}"
+jq -e --arg url "$record" \
+    --arg issue "https://api.github.com/repos/${repo}/issues/${pr}" \
+    --arg id "$comment_id" \
+    'type == "object" and .html_url == $url and .issue_url == $issue
+      and (.id | tostring) == $id and (.body | type) == "string"' \
+    <<<"$comment" >/dev/null 2>&1 \
+  || die "レビュー記録のコメントがこの PR の URL / id / 本文型と一致しない: ${record}"
+record_body="$(jq -r '.body' <<<"$comment")"
 [ -n "$record_body" ] || die "レビュー記録の本文を取れない: ${record}
-       **本文を読めないものを中継しない。**ローカルファイルのパスを渡してもよい"
+       **本文を読めないものを中継しない。**この PR の issue コメント URL を渡すこと"
 
 # ── 2. 機械で確かめられる門（fail-closed。欠けたらモデルを呼ばない）──
 note "機械で確かめる門を通す"
@@ -119,7 +137,29 @@ if [ "$is_draft" != "false" ]; then
   note "Draft だが risk:high なので中継の対象（持ち主の判定 2026-10-05）"
 fi
 
-if jq -e --arg c review:passed \
+if [ "$correct_target_url" = 1 ]; then
+  # 検証器と同じ created_at / id 順で最新を選ぶ。別の判定の上書きは禁止。
+  jq -e 'all(.[] | select(.context == "review:passed");
+    (.created_at | type == "string") and
+    (.created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+    (.id | type == "number") and .id > 0 and (.id | floor) == .id)' \
+    <<<"$statuses" >/dev/null 2>&1 || die "訂正に必要な status の日時 / id が不正"
+  latest_status="$(jq -c '[.[] | select(.context == "review:passed")]
+    | sort_by(.created_at, .id) | last' <<<"$statuses")"
+  [ "$latest_status" != "null" ] || die "この head に訂正する success が無い"
+  [ "$(jq -r '.state' <<<"$latest_status")" = "success" ] \
+    || die "最新の review:passed が success でない。判定を訂正で上書きしない"
+  if jq -e --arg prefix "$record_prefix" '
+    any(.[]; .context == "review:passed" and .state == "success" and
+      (.target_url | if type == "string" then
+        startswith($prefix) and (ltrimstr($prefix) | test("^[1-9][0-9]*$"))
+      else false end))' <<<"$statuses" >/dev/null; then
+    die "この head には既にこの PR の issue コメント URL の success がある。
+       **二重に出さない。訂正も同じ head に1回だけ。**head=${head_sha}"
+  fi
+  old_target_url="$(jq -r '.target_url // "" | tostring' <<<"$latest_status")"
+  note "target_url の訂正だけを行う（本文の門・判定の段は通常どおり）"
+elif jq -e --arg c review:passed \
      '[.[] | select(.context==$c)] | map(select(.state=="success")) | length > 0' \
      <<<"$statuses" >/dev/null 2>&1; then
   die "この head には既に review:passed が success で付いている。
@@ -200,6 +240,15 @@ ${record_body}
 \`\`\`
 FACTS
 
+if [ "$correct_target_url" = 1 ]; then
+  cat >> "$facts" <<CORRECTION
+
+## target_url の訂正
+旧 target_url : ${old_target_url}
+記録の宛先    : ${record}
+CORRECTION
+fi
+
 # ── 4. 判定の段（read-only・ネットワーク遮断のモデル）────────────────
 note "判定の段を回す（read-only・ネットワーク遮断）"
 prompt="$(cat <<'PROMPT'
@@ -255,6 +304,9 @@ audit="${LOG_DIR}/$(date -u +%Y-%m-%d).md"
   printf -- '- record : %s\n' "$record"
   printf -- '- labels : %s\n' "$labels"
   printf -- '- verdict: %s\n' "$verdict"
+  if [ "$correct_target_url" = 1 ]; then
+    printf -- '- target_url 訂正: %q → %q\n' "$old_target_url" "$record"
+  fi
 } >> "$audit"
 
 if [[ "$verdict" != "RELAY: POST" ]]; then

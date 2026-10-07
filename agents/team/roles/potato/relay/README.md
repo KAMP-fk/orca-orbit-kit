@@ -3,8 +3,12 @@
 **仕事は1つだけ。**独立レビューの結果を確かめて、`review:passed` の commit status を付ける。
 
 ```
-review-relay <PR番号> <レビュー記録のURL または ローカルファイル> [--repo <owner/name>] [--dry-run]
+review-relay <PR番号> <この PR の issue コメント URL> --verdict <判定ファイル> [--repo <owner/name>] [--dry-run] [--correct-target-url]
 ```
+
+`--correct-target-url` は、現在 head の最新 `review:passed` が success で、その `target_url` がこの PR の issue コメント URL の形でない場合の訂正だけに使う。新しい URL は `https://github.com/<repo>/pull/<PR番号>#issuecomment-<正の整数>` とし、記録本文は full SHA・CAF-308 の3行・判定の逐語を含む既存の門をすべて通し、モデルの判定も通常どおり受ける。status 履歴を全ページ読み、日時（同秒は id）で最新を選ぶ。履歴にこの PR の正しい形のコメント URL を指す success が一つでもあれば、同じ head の訂正を拒否する。フラグなしでは従来どおり二重投稿を拒否する。判定の上書きや別の判定の再投稿には使ってはいけない。訂正であることと旧 URL → 新 URL は `log/` に残る（機械の門での早期拒否は従来どおり記録しない）。
+
+通常・訂正の両モードで、コメント API の応答が object、`html_url` が渡された URL と完全一致、`issue_url` が対象 PR の API URL と完全一致、`id` が URL のコメント id と一致、`body` が string であることをモデルの前に要求する。取得失敗・不一致は拒否する。`--repo` は API 応答の URL と大文字小文字を揃える。PR 全体の URL とローカルパスは受け付けない。#313 のように検証器が受け取れない `target_url` を通常投稿する原因を防ぐため、フラグなしの入力も厳しくした。条件の正本は [concafe-techo の検証器（2dc5928）](https://github.com/KAMP-fk/concafe-techo/blob/2dc5928dab6be0fe54c1ed507fde68481f9e687b/.github/scripts/review-evidence.sh#L47-L58)。
 
 ## なぜ専任が要るか
 
@@ -50,9 +54,10 @@ review-relay <PR番号> <レビュー記録のURL または ローカルファ�
 | 門 | 落ちる理由 |
 |---|---|
 | **レビュー記録の本文が読めること** | **読めないものを中継しない** |
+| **記録 URL と API 応答の URL・PR 帰属・id・本文型が一致すること** | **別 PR のコメントや検証器が受け取れない URL を中継しない** |
 | **PR が Draft でないこと** | **Draft の中継はしない** |
 | **`risk:high` / `risk:low` のどちらかが付いていること** | **ラベルの不在を低リスクの証拠にしない**（CAF-283 と同じ fail-closed） |
-| **その head に `review:passed` success が未だ無いこと** | **二重に出さない** |
+| **その head に `review:passed` success が未だ無いこと**（例外: `--correct-target-url` で最新 success の誤った URL を訂正する場合だけ、同じ head に1回） | **二重に出さない。履歴にこの PR の正しい形のコメント URL を指す success があれば訂正も拒否する** |
 | **失敗している check が無いこと** | **緑でないものを中継しない** |
 | **pending の check が無いこと** | **走り終わる前に中継しない** |
 | **記録に head の full SHA が逐語で在ること** | **どの SHA を見たか書いていない記録を中継しない**（CAF-288 / ADR-062） |
@@ -94,3 +99,4 @@ review-relay <PR番号> <レビュー記録のURL または ローカルファ�
 - CAF-308 — 中継者の未関与を機械的に担保できない
 - CAF-364 — Orca 経由のレビュアーが read-only の担保を失った
 - `~/brain/decisions/2026-10-01-中継専任を立てる.md`
+- 訂正の例外の根拠: 持ち主が 2026-10-07 18:1x JST に Banana のチャットで、選択肢「門に『訂正の1本』を足す」を選んだ（誤った `target_url` の訂正だけを許す）。記録: `~/brain/dev/報告/2026-10-07.md` の同日の節（「持ち主の判断4点」）、窓口への連絡 team-mail `aef5dd19dcb9442ea1d689368a51d3a3`。きっかけは concafe-techo PR #313（CAF-372）の `review:passed` が PR 全体の URL を `target_url` にして付いたこと
