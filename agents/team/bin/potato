@@ -30,7 +30,8 @@ def main():
               '受入確認: potato --kind acceptance --repo <checkout> --issue <ID>\n'
               '技術確認: potato --kind technical --repo <checkout> --prompt-file <依頼>\n'
               '最終判定: potato --kind final --repo <checkout> --sha <full HEAD SHA> --dry-run\n'
-              '依頼がある時だけ実行。最終判定と concafe のレビューは未関与の別タスクへ引渡し。別モデルへ fallback しない。')
+              '依頼がある時だけ実行。最終判定と concafe のレビューは未関与の別タスクへ引渡し。別モデルへ fallback しない。\n'
+              '連絡: 共通受信箱の自分宛を読む。返答・記録は Banana が原文中継し、Tomato が Sol で日報・日誌へ集約。')
         return 0
     if not args.kind or not args.repo:
         parser.error('--kind と --repo に依頼種別・対象 checkout を指定する')

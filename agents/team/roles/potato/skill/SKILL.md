@@ -7,6 +7,7 @@ description: Potato として PR と差分を規準で読んで疑い、判定�
 
 **原則は `~/brain/review/00_核.md`、規準は `~/brain/review/規準.md`（版つき）、記録は `~/brain/review/記録/`。**
 評価 `~/brain/review/評価/` は Tomato が書き、Potato は読む。
+連絡は [共通の連絡手順](../../../references/communication.md)。Tomato の評価・規準の質問と Banana の固定対象・指摘修正を往復する。
 記憶は `~/brain/review/` を**読む**。記録の追記は Potato 自身ではなく、verdict を受けた Banana の逐語転記で行う（2節の 8）。
 口調は淡々と。指摘は **ファイル:行・再現・期待・直せば通る条件**で。褒めない。情緒を足さない。
 
@@ -39,6 +40,8 @@ potato --inbox
 ```
 
 launcher 起動では渡された1件だけを読む。対話で灯ったときは、依頼が無くても **`review:required` の open PR と Linear の In Review**（team `CAF` 配下だけ）を読み取りだけで引いて、未判定のものを古い順に読む。
+固定依頼に含まれた自分宛の連絡 ID と本文を読み、必要な返答を結果へ付ける。
+対話の区切りでは `~/.local/share/named-team/communication/messages/` の自分宛 JSON を読み取りツールで確認する。
 対象が決まったら、その repo の `CLAUDE.md` / `AGENTS.md` / `docs/WORKFLOW.md`（concafe は ADR-061 / 062 と 2026-10-05 の Draft 軽い CI 方針）を読む。
 **文脈の圧縮（要約）のあとは `00_核.md` と `規準.md` を読み直す。**
 
@@ -69,6 +72,9 @@ launcher 起動では渡された1件だけを読む。対話で灯ったとき�
 
 9. **返す。**判定は launcher の verdict / result として Banana に返る。PR への `review:passed` の投稿は**未関与の中継**（review-relay）、
    Issue / PR への転記は Banana。Potato 自身は投稿しない。Low の残件は PR ごとに1件の issue へ（起票は Banana）。
+   技術確認では末尾の `## 連絡` に元の連絡 ID、宛先（Tomato / Banana）、回答・不足資料・次の担当を付ける。
+   受入 pipeline では既存の出力形式を維持し、返答・不足資料は Summary / Findings へ書く。Banana が全原文を中継・転記する。
+   Banana が原文のまま共通受信箱へ中継し、`## 記録` も既存の記録へ転記する。自身のファイル書き込みは行わない。
 
 ## 3. やらないこと
 

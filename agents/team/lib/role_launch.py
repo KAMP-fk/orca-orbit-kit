@@ -37,6 +37,10 @@ def claude_spec(role, cwd, skill, installed, model, effort, batch, dry_run, read
                     '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
                     '--agents', json.dumps(definition, ensure_ascii=False), '--agent', 'potato',
                     '--add-dir', str(skill.parent), '--add-dir', str(ROOT / 'references')]
+        from team_mail import default_root
+        if default_root().is_dir():
+            # Shared communication data is readable; the tool set stays read-only.
+            command += ['--add-dir', str(default_root())]
     elif read_only:
         # No command/write tools or MCP servers in a repository read request.
         command += ['--permission-mode', 'plan', '--tools', 'Read,Grep,Glob',

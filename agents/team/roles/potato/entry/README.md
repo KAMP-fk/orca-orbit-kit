@@ -16,3 +16,10 @@ Banana が開発を終えた案件を受け、実装に未関与の担当が確�
 依頼は Banana に渡してください。案件からレビューを進める入口は `banana review`、
 Potato の種別と手順を表示するコマンドは `potato --inbox` です。
 この表示窓口ではモデルを自動起動しません。
+
+## 3役との連絡
+
+Tomato の評価・規準の質問、Banana の固定対象・修正条件は
+[共通の連絡手順](/Users/kamp/orca/agents/team/references/communication.md) に従う。
+Potato は連絡を読み、`## 連絡` を結果に付けて返す。Banana が原文のまま中継する。
+Tomato は3役の記録と往復を Sol 6.1 / medium で日報・日誌へ集約する。

@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Read and record Tomato / Banana / Potato communication without launching a model."""
+import argparse
+import json
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
+from team_mail import ROLES, default_root, send, records, acknowledge, message, relay_potato
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--root', type=Path, default=default_root(), help='通常は省略。fixture 用の別受信箱')
+    sub = parser.add_subparsers(dest='command', required=True)
+    for command in ('send', 'reply', 'relay-potato'):
+        child = sub.add_parser(command, allow_abbrev=False)
+        if command != 'relay-potato':
+            child.add_argument('--from', dest='sender', choices=ROLES, required=True)
+            child.add_argument('--body-file', type=Path, required=True)
+            child.add_argument('--source', help='元の報告・記録の path / PR / SHA')
+        else:
+            child.add_argument('--source-file', type=Path, required=True)
+        if command != 'reply':
+            child.add_argument('--to', choices=ROLES, nargs='+', required=True)
+            child.add_argument('--subject', required=True)
+        if command == 'send':
+            child.add_argument('--no-reply', action='store_true', help='通知。受領確認だけで完了する')
+        if command != 'send':
+            child.add_argument('--id', required=command == 'reply', help='返答対象の message ID')
+    inbox = sub.add_parser('inbox')
+    inbox.add_argument('--role', choices=ROLES, required=True)
+    inbox.add_argument('--all', action='store_true')
+    ack = sub.add_parser('ack')
+    ack.add_argument('--role', choices=ROLES, required=True)
+    ack.add_argument('--id', required=True)
+    ack.add_argument('--note', required=True)
+    log = sub.add_parser('log')
+    log.add_argument('--date', help='Asia/Tokyo の YYYY-MM-DD')
+    args = parser.parse_args()
+    try:
+        if args.command == 'send':
+            result = send(args.root, args.sender, args.to, args.subject,
+                          args.body_file.read_text(encoding='utf-8'), source=args.source, needs_reply=not args.no_reply)
+        elif args.command == 'reply':
+            original = message(args.root, args.id)
+            result = send(args.root, args.sender, [original['from']], 'Re: ' + original['subject'],
+                          args.body_file.read_text(encoding='utf-8'), args.id, args.source)
+        elif args.command == 'relay-potato':
+            result = relay_potato(args.root, args.source_file, args.to, args.subject, args.id)
+        elif args.command == 'ack':
+            result = acknowledge(args.root, args.role, args.id, args.note)
+        else:
+            result = records(args.root, role=args.role if args.command == 'inbox' else None,
+                             unread=not args.all if args.command == 'inbox' else False,
+                             day=args.date if args.command == 'log' else None)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    except (OSError, ValueError, KeyError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

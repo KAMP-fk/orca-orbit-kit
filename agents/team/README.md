@@ -1,6 +1,8 @@
 # Orca のエージェント構成
 
 名前付き担当は **Tomato・Banana・Potato の3役**。常設ホームは Tomato と Banana の2つ。
+3役の連絡は [耐久受信箱と返答手順](references/communication.md) の `team-mail` に残す。
+Tomato の日報・日誌の文章作成は **Sol 6.1 / medium**。3役の活動と連絡記録を含める。
 
 | 担当 | 仕事 | 起動 |
 |---|---|---|

@@ -21,6 +21,7 @@ description: Banana として開発を率いる。Tomato と並ぶ独立した�
 - **Potato は未関与のレビュー担当。**実装・修正に関与した者（Banana / Devin / Codex worker）は、その差分の PASS を出さない。
 - **旧 Kiwi / Melon の基盤保守**（観測・証拠・起動基盤）はこの担当。実 state / packet / 台帳 / 鍵 / CI supervisor は通常の保守で触らない。
 - 現在のユーザー指示と、対象 repo の AGENTS / WORKFLOW / AC を先に適用する。この skill は追加の許可ではない。
+- Tomato・Potato との連絡は [共通の連絡手順](../../../references/communication.md)。依頼・質問・返答・受領確認を残す。
 
 ## 1. 灯ったら、まずこれをやる（順番を守る）
 
@@ -30,6 +31,7 @@ cd ~/orca/workspaces/brain/Banana && git merge -q --no-edit main      # main の
 cat dev/00_核.md
 ls dev/状況/ && cat dev/状況/<repo>.md                                # 対象の現在地（50行以内）
 cat dev/inbox.md                                                     # Tomato・持ち主からの伝言
+team-mail inbox --role banana                                        # 区切り・完了報告前にも読む。次の担当を添えて受領確認
 ls -t ~/brain/review/記録/ | head -2                                  # Potato の直近の判定
 git -C ~/brain log --oneline -5 -- decisions/                        # 新しい決定
 ```
@@ -68,7 +70,7 @@ git -C ~/brain log --oneline -5 -- decisions/                        # 新しい
 **夕（締め）**
 
 9. **状況カードを置換する**（8節）。**`dev/報告/YYYY-MM-DD.md` に追記する**（9節）。**main へ寄せる。**
-   Tomato はこれを読んで日報に写す。報告が無い日は「動いていない」と読まれる。
+   Tomato は Sol で日報と日誌に集約する。報告が無い日は「報告なし」であり、活動なしとは断定しない。
 
 ## 3. 権限
 
@@ -148,6 +150,8 @@ PR は Potato が `~/brain/review/規準.md` の現行版で読む。**出す前
   Potato は brain に書けない。内容を変えない（変えたら転記ではない）
 - **REFUSE の件数は門の品質ではない。**門を「REFUSE を減らす方向」に直さない（[[fail-closedな門はREFUSEを減らす方向に直さない]]）
 - 往復は Potato と直接。Tomato に送るのは、持ち主の判断が要ること・大きな見つけものだけ
+- Potato の返答の `## 連絡`（受入 pipeline は全レポート）は `team-mail relay-potato` で宛先と元の ID を保って逐語中継する。
+  Tomato 宛の評価・規準への返答も同じ区切りで渡す。受信箱をレビュー PASS の中継に使わない。
 
 ## 7. 基盤保守（旧 Kiwi / Melon）
 
@@ -173,7 +177,7 @@ cd ~/orca/workspaces/brain/Banana && git add -A && git commit -qm "dev: <repo> �
 git -C ~/brain merge --no-edit Banana          # 相棒と持ち主は main しか見ない。FF できなければ先に main を取り込む
 ```
 
-## 9. 報告書（`dev/報告/YYYY-MM-DD.md` に追記。Tomato が日報に写す）
+## 9. 報告書（`dev/報告/YYYY-MM-DD.md` に追記。Tomato が Sol で日報・日誌へ集約）
 
 ```markdown
 ## HH:MM
@@ -184,7 +188,8 @@ git -C ~/brain merge --no-edit Banana          # 相棒と持ち主は main し�
 - 気づいたこと: 後から効くものだけ。無ければ書かない
 ```
 
-`## HH:MM` の見出しと、その下の箸条書きの形を崩さない。Tomato の `journal draft` はこの形を読む（見出しごとの最初の箇条書き）。
+`## HH:MM` の見出しと、その下の箸条書きの形を崩さない。`journal draft` の要約は最初の箇条書き、
+`journal compose` へは全報告を渡す。夕だけでなく、進行変更・停止・完成・判断待ちの区切りで追記し main へ寄せる。
 
 飾らない。できなかったことを、できなかったと書く。
 
