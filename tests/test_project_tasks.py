@@ -49,6 +49,12 @@ class ProjectTaskTests(unittest.TestCase):
         (self.repo / '.gitignore').write_text('ignored.cache\n')
         self.git('add', '.')
         self.git('commit', '-m', 'fixture base')
+        self.remote = self.base / 'remote.git'
+        self.git('clone', '--bare', str(self.repo), str(self.remote))
+        self.git('remote', 'add', 'origin', str(self.remote))
+        # Keep concafe identity fixtures offline even when they use its real URL.
+        self.git('config', 'url.' + str(self.remote) + '.insteadOf',
+                 'git@github.com:KAMP-fk/concafe-techo.git')
         self.env = dict(self.fixture.env, NAMED_TEAM_PROJECT_TASK_DIR=str(self.base / 'projects'),
                         NAMED_TEAM_PROJECT_CREATE_WAIT_SECONDS='0.1', NAMED_TEAM_PROJECT_CLOSE_WAIT_SECONDS='0.1')
         self.calls = []
@@ -56,6 +62,8 @@ class ProjectTaskTests(unittest.TestCase):
         self.terminals = {}
         self.latest = None
         self.workers = []
+        self.expected_worker_branch = None
+        self.prefixed_branch = False
         self.timeout_create = False
         self.missing_create = False
         self.default_agent = False
@@ -110,7 +118,8 @@ class ProjectTaskTests(unittest.TestCase):
             base = args[args.index('--base-branch') + 1] if '--base-branch' in args else 'main'
             if '--parent-worktree' in args:
                 self.assertTrue(args[args.index('--parent-worktree') + 1].startswith('id:fixture-repo::'))
-            self.git('worktree', 'add', '-b', name, str(root), base)
+            branch = 'KAMP-fk/' + name.replace('/', '-') if self.prefixed_branch else name
+            self.git('worktree', 'add', '-b', branch, str(root), base)
             target = {'id': 'fixture-repo::' + str(root), 'path': str(root), 'displayName': name,
                       'comment': args[args.index('--comment') + 1], 'hostId': 'local',
                       'parentWorktreeId': args[args.index('--parent-worktree') + 1][3:] if '--parent-worktree' in args else None}
@@ -133,6 +142,10 @@ class ProjectTaskTests(unittest.TestCase):
         if args[:2] == ('terminal', 'create'):
             run = Path(shlex.split(args[args.index('--command') + 1])[-1])
             self.latest = run
+            if self.expected_worker_branch:
+                request = json.loads((run / 'request.json').read_text())
+                self.assertEqual(self.git('branch', '--show-current', cwd=Path(request['cwd'])),
+                                 self.expected_worker_branch)
             selected = args[args.index('--worktree') + 1][3:]
             self.terminals.setdefault(selected, []).append({'handle': 'term_worker'})
             with (run / 'visible.txt').open('w') as output:
@@ -194,8 +207,119 @@ class ProjectTaskTests(unittest.TestCase):
         return project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
                                            development=True, task_id='fixture-task', origin='tomato', **kwargs)
 
+    def branch_plan(self):
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        return project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
+                                          development=True, task_id='CAF-123', origin='tomato')
+
+    def test_development_renames_orca_prefixed_branch_before_worker(self):
+        self.prefixed_branch = True
+        os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'commit'
+        plan = self.branch_plan()
+        self.expected_worker_branch = plan['requestedBranch']
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        self.assertEqual(record['after']['branch'], plan['requestedBranch'])
+        self.assertEqual(self.model_calls(), 1)
+        request = json.loads((Path(plan['jobPath']) / 'session/request.json').read_text())
+        self.assertEqual(self.git('branch', '--show-current', cwd=Path(request['cwd'])),
+                         plan['requestedBranch'])
+
+    def test_development_existing_requested_branch_is_retained_without_worker(self):
+        self.prefixed_branch = True
+        plan = self.branch_plan()
+        self.git('branch', plan['requestedBranch'])
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 4)
+        self.assertIn('改名', record['failure'])
+        retained = Path(record['unverifiedWorktree']['path'])
+        self.assertTrue(retained.exists())
+        self.assertEqual(self.git('branch', '--show-current', cwd=retained),
+                         'KAMP-fk/' + plan['name'].replace('/', '-'))
+        self.assertEqual(self.model_calls(), 0)
+        calls = len(self.calls)
+        self.assertEqual(self.run_job(plan)[0], 4)
+        self.assertEqual(len(self.calls), calls)
+
+    def test_development_fetches_latest_remote_default_before_creation(self):
+        old = self.git('rev-parse', 'HEAD')
+        self.git('fetch', 'origin')
+        self.git('remote', 'set-head', 'origin', 'main')
+        upstream = self.base / 'upstream'
+        self.git('clone', str(self.remote), str(upstream))
+        self.git('config', 'user.name', 'Fixture', cwd=upstream)
+        self.git('config', 'user.email', 'fixture@example.invalid', cwd=upstream)
+        self.git('config', 'commit.gpgsign', 'false', cwd=upstream)
+        self.git('checkout', '-b', 'trunk', cwd=upstream)
+        (upstream / 'base.txt').write_text('remote latest\n')
+        self.git('commit', '-am', 'remote advancement', cwd=upstream)
+        self.git('push', 'origin', 'trunk', cwd=upstream)
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/trunk', cwd=self.remote)
+        latest = self.git('rev-parse', 'HEAD', cwd=upstream)
+        plan = self.development_plan()
+        self.assertIsNone(plan['requestedBaseSha'])
+        self.assertEqual(self.git('rev-parse', 'origin/main'), old)
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        self.assertEqual(record['requestedBaseSha'], latest)
+        self.assertEqual(record['baseSha'], latest)
+        self.assertEqual(self.git('rev-parse', 'main'), old)
+        created = next(args for args in self.calls if args[:2] == ('worktree', 'create'))
+        self.assertEqual(created[created.index('--base-branch') + 1], latest)
+
+    def test_development_fetch_failure_starts_no_checkout_or_worker(self):
+        plan = self.development_plan()
+        original = project_workspaces.git_process
+        def fail_fetch(git, root, *args):
+            if args and args[0] == 'fetch':
+                return subprocess.CompletedProcess(args, 1, '', 'fixture fetch failure')
+            return original(git, root, *args)
+        with mock.patch.object(project_workspaces, 'git_process', side_effect=fail_fetch):
+            rc, record = self.run_job(plan)
+        self.assertEqual(rc, 4)
+        self.assertIn('fetch', record['failure'])
+        self.assertFalse(self.worktrees)
+        self.assertEqual(self.model_calls(), 0)
+        self.assertFalse(any(args[:2] == ('worktree', 'create') for args in self.calls))
+
+    def test_development_rename_failure_retains_checkout_without_worker(self):
+        self.prefixed_branch = True
+        plan = self.branch_plan()
+        original = project_workspaces.git_process
+        def fail_rename(git, root, *args):
+            if args[:2] == ('branch', '-m'):
+                return subprocess.CompletedProcess(args, 1, '', 'fixture rename failure')
+            return original(git, root, *args)
+        with mock.patch.object(project_workspaces, 'git_process', side_effect=fail_rename):
+            rc, record = self.run_job(plan)
+        self.assertEqual(rc, 4)
+        self.assertIn('改名', record['failure'])
+        self.assertTrue(Path(record['unverifiedWorktree']['path']).exists())
+        self.assertEqual(self.model_calls(), 0)
+
+    def test_development_missing_origin_stops_but_maintenance_still_runs(self):
+        plan = self.development_plan()
+        self.git('remote', 'remove', 'origin')
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 4)
+        self.assertIn('origin', record['failure'])
+        self.assertFalse(self.worktrees)
+        self.assertEqual(self.model_calls(), 0)
+        maintenance = project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
+                                                 task_id='maintenance-no-remote')
+        self.assertIsNone(maintenance['requestedBaseSha'])
+        self.assertEqual(self.run_job(maintenance)[0], 0)
+        self.assertEqual(self.model_calls(), 1)
+
+    def test_development_explicit_base_skips_remote_refresh(self):
+        plan = self.development_plan(base_ref='main')
+        self.git('remote', 'remove', 'origin')
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        self.assertEqual(record['baseSha'], plan['requestedBaseSha'])
+
     def test_public_banana_develop_preview_selects_codex_without_calls_or_state(self):
-        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         request = self.base / 'request with spaces.md'
         request.write_text('Fixture implementation request')
         result = subprocess.run([sys.executable, str(PACKAGE / 'bin/banana'), 'develop',
@@ -236,7 +360,7 @@ class ProjectTaskTests(unittest.TestCase):
                 self.development_plan(**options)
         with self.assertRaises(ValueError):
             project_tasks.request_plan('tomato', self.repo, 'request', development=True)
-        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         with self.assertRaisesRegex(ValueError, 'CAF-'):
             self.development_plan()
         self.assertFalse(self.calls)
@@ -400,7 +524,7 @@ class ProjectTaskTests(unittest.TestCase):
 
     def test_concafe_codex_development_preserves_branch_policy_and_separate_opus_review(self):
         os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'commit'
-        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        self.git('remote', 'set-url', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         plan = project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
                                            development=True, task_id='CAF-123', origin='tomato')
         self.assertTrue(plan['name'].startswith('codex/caf-123-'))

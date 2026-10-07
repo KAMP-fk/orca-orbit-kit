@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import time
 
 from checkout_context import common_dir, git_process, git_read, require_checkout as observe, resolve_ref
@@ -65,11 +66,34 @@ def checkout_title(record):
     return task + '｜' + purpose
 
 
+def latest_remote_default(root):
+    """Pin origin's advertised default branch, never a stale local fallback."""
+    git = shutil.which('git')
+    try:
+        advertised = git_read(git, root, 'ls-remote', '--symref', 'origin', 'HEAD')
+        defaults = [line.split('\t')[0][5:] for line in advertised.splitlines()
+                    if line.startswith('ref: refs/heads/') and line.endswith('\tHEAD')]
+        if len(defaults) != 1:
+            raise RuntimeError('origin の既定 branch を一意に確認できない。作成・起動を止める')
+        branch = defaults[0][len('refs/heads/'):]
+        remote_ref = 'refs/remotes/origin/' + branch
+        # Explicit refspec also handles a changed default and limited fetch config.
+        fetched = git_process(git, root, 'fetch', '--no-tags', 'origin',
+                              '+' + defaults[0] + ':' + remote_ref)
+        if fetched.returncode:
+            raise RuntimeError('origin の既定 branch の fetch に失敗。作成・起動を止める')
+        return resolve_ref(root, remote_ref)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError('origin の既定 branch の確認 / fetch が timeout。作成・起動を止める') from exc
+
+
 def create_checkout(orca, record, job):
     repo = registered_repo(orca, record)
     record['repoId'] = repo['id']
     parent = checkout_parent(orca, record, repo)
     record['lineageParentWorktreeId'] = parent
+    if record.get('development') and not record['requestedBaseSha']:
+        record['requestedBaseSha'] = latest_remote_default(Path(record['source']['repositoryRoot']))
     marker = 'named-task:' + record['key']
     record.update(stage='create-requested', createMarker=marker)
     save(job / 'record.json', record)
@@ -107,12 +131,23 @@ def create_checkout(orca, record, job):
     if record['requestedBaseSha'] and checkout_info['headSha'] != record['requestedBaseSha']:
         record['unverifiedWorktree'] = {'id': target['id'], 'path': target['path']}
         raise RuntimeError('指定した base SHA と新規 checkout が一致しない。保持して停止')
-    if record.get('requestedBranch') and checkout_info['branch'] != record['requestedBranch']:
-        record['unverifiedWorktree'] = {'id': target['id'], 'path': target['path']}
-        raise RuntimeError('案件 branch がプロジェクトの指定と一致しない。保持して停止')
     if parent and target.get('parentWorktreeId') != parent:
         record['unverifiedWorktree'] = {'id': target['id'], 'path': target['path']}
         raise RuntimeError('案件 checkout の親子関係を確認できない。保持して停止')
+    if record.get('requestedBranch') and checkout_info['branch'] != record['requestedBranch']:
+        record['unverifiedWorktree'] = {'id': target['id'], 'path': target['path']}
+        if record.get('development') and checkout_info['branch']:
+            try:
+                renamed = git_process(shutil.which('git'), Path(target['path']),
+                                      'branch', '-m', record['requestedBranch'])
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError('案件 branch の改名が timeout。保持して停止') from exc
+            if renamed.returncode:
+                raise RuntimeError('案件 branch の改名に失敗。保持して停止')
+            checkout_info = observe(target['path'])
+        if checkout_info['branch'] != record['requestedBranch']:
+            raise RuntimeError('案件 branch がプロジェクトの指定と一致しない。保持して停止')
+        record.pop('unverifiedWorktree', None)
     record.update(stage='created', ownsWorktree=True, worktreeId=target['id'], targetPath=checkout_info['repositoryRoot'],
                   baseSha=checkout_info['headSha'], initialTerminals=[])
     save(job / 'record.json', record)
