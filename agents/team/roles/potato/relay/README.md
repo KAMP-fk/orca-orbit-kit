@@ -3,8 +3,10 @@
 **仕事は1つだけ。**独立レビューの結果を確かめて、`review:passed` の commit status を付ける。
 
 ```
-review-relay <PR番号> <レビュー記録のURL または ローカルファイル> [--repo <owner/name>] [--dry-run]
+review-relay <PR番号> <レビュー記録のURL または ローカルファイル> --verdict <判定ファイル> [--repo <owner/name>] [--dry-run] [--correct-target-url]
 ```
+
+`--correct-target-url` は、現在 head の最新 `review:passed` が success で、その `target_url` がこの PR の issue コメント URL の形でない場合の訂正だけに使う。新しい URL は `https://github.com/<repo>/pull/<PR番号>#issuecomment-<正の整数>` とし、記録本文は full SHA・CAF-308 の3行・判定の逐語を含む既存の門をすべて通し、モデルの判定も通常どおり受ける。status 履歴を全ページ読み、日時（同秒は id）で最新を選ぶ。履歴にこの PR の正しい形のコメント URL を指す success が一つでもあれば、同じ head の訂正を拒否する。フラグなしでは従来どおり二重投稿を拒否する。判定の上書きや別の判定の再投稿には使ってはいけない。訂正であることと旧 URL → 新 URL は `log/` に残る（機械の門での早期拒否は従来どおり記録しない）。
 
 ## なぜ専任が要るか
 
