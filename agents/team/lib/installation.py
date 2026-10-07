@@ -17,7 +17,7 @@ def links(home, config_home, claude_home=None):
             if role['backend'] == 'codex':
                 result.append((config_home / (name + '.config.toml'), ROOT / role['profile']))
     result += [(home / '.local/bin' / name, ROOT / 'bin' / name)
-               for name in ('context', 'task', 'activity', 'plan', 'team-mail')]
+               for name in ('context', 'task', 'activity', 'plan', 'team-mail', 'delivery-flow')]
     result.append((home / '.local/bin/devin-flow', ROOT / 'bin/devin'))
     # The existing Claude entry uses the same Banana definition as Codex.
     # Its frontmatter name exposes /banana; it is not a separate role/backend.

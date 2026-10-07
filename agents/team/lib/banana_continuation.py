@@ -136,8 +136,24 @@ def observe(client, config, native):
                      'head': handoff.get('headSha')})
     facts = {'issues': sorted(issues, key=lambda r: r['key']), 'prs': sorted(prs, key=lambda r: r['number']),
              'jobs': jobs, 'workspaces': sorted(workspaces, key=lambda r: r['id'])}
+    # Read only a fixed bounded pool. This is a wake signal, not start permission.
+    approved = {}
+    pool_path = Path.home() / '.local/share/orbit-console/start-pool.json'
+    try:
+        from delivery_flow import read
+        pool = read(pool_path)
+        from datetime import datetime, timezone
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(pool['decidedAt'].replace('Z', '+00:00'))).total_seconds()
+        if pool.get('repo') == config['repo'] and pool.get('decision') in ('APPROVED', 'APPROVED_WITH_CONDITIONS') and 0 <= age < 7 * 86400:
+            approved = {r['identifier']: r['observationDigest'] for r in pool.get('issues', [])
+                        if r.get('implementationApproved') is True and re.fullmatch(r'CAF-[1-9][0-9]*', r.get('identifier', ''))
+                        and re.fullmatch(r'[a-f0-9]{64}', r.get('observationDigest', ''))}
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    facts['pool'] = sorted((key, value) for key, value in approved.items())
     candidates = [r['key'] for r in issues if r['stateType'] == 'unstarted' and not r.get('assignee')
-                  and not {'human-approval', 'risk:high'}.intersection(r['labels'])]
+                  and (not {'human-approval', 'risk:high'}.intersection(r['labels'])
+                       or (r['key'] in approved and approved[r['key']] == r.get('descriptionHash')))]
     underway = any(r['stateType'] == 'started' for r in issues) or bool(prs)
     collection = any(j['stage'] in ('collected', 'execution-unconfirmed', 'unconfirmed')
                      and j['cleanup'] != 'removed' for j in jobs)
@@ -155,6 +171,14 @@ def prompt(config, identifier, facts):
             '実装 WIP は最大2本。完了成果を回収し、検査・commit/PR・指摘修正・独立レビュー・CI・'
             '自動 merge 後の完了確認を、実際の委任と各ゲートに沿って進める。'
             '実装枠が空いたら Todo の依存・既存担当・AC・共有ファイル競合・優先順位を現物で確認し補充する。'
+            '着手候補の目標は3〜5件（実装WIPとは別）。'
+            'Orbitの固定着手委任記録 ~/.local/share/orbit-console/start-pool.json を確認し、'
+            '受入条件のdigest・期限・具体的な実装/検査/PR範囲と現物が一致する案件を選ぶ。'
+            'human-approvalラベルの有無だけで委任を判定しない。本番・secret・課金等の本人操作は実装委任と分ける。'
+            '候補が3件未満なら新たな上位判断のpacketを準備し、既存の担当経路で補充する。'
+            '1件は独立して検証・mergeできる受入範囲に絞り、仕様判断・共通化・運用変更を混在させない。'
+            'レビュー依頼は受付で止めず、実モデル/effort/session・固定SHA・開始証明・結果・必須CIを回収する。'
+            '既存レビューがある案件の二重起動を避け、開始できない場合は拒否・認証・native startup等の原因を保持する。'
             'レビュー/CI/人間判断待ちの案件があっても、独立した進められる案件を続ける。'
             '同じ案件の別場所・別PR・二重監視を増やさない。\n'
             '通常の新規進行・実装は Sol medium、複雑な技術作業は Sol high。'

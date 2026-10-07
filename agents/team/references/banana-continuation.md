@@ -59,3 +59,35 @@ Orca の automation `run` は手動実行で precheck を通さず、汎用 prov
 隔離 fixture のテストは `tests/test_banana_continuation.py`。
 実運用の有効化・時計の設定・native 送信受付・実際の turn 開始は、
 それぞれ現在の receipt で確かめる。テスト成功だけを稼働成功や独立 verdict としない。
+
+## 開発速度の確認（2026-10-07 Owner）
+
+着手候補の目標は3〜5件。実装WIP最大2本とは別の待機poolとして管理する。
+判定済みの受入条件・allowedScope/excludedScope・本人操作・優先順位を
+`~/.local/share/orbit-console/start-pool.json` に保持し、本文digest・期限・依存・既存担当・共有pathを
+着手瞬間に再確認する。件数不足は隠さずpoolへ補充する。human-approvalラベルだけでは委任を判定しない。
+1件は独立して完成/検証/mergeできる単位に絞り、大きいissueは承認済みACを子issueへ分ける。
+
+上位判断の成果は `agents/team/bin/delivery-flow publish-pool --decision-file <file>` で現在本文との
+一致を検証して保存する。本人操作の本番・secret・課金等は包括委任しない。
+
+レビューは未関与の別Codexタスクで、Owner CAF-279の最終Astra highを使う。
+既存default launcherがunsafe argvを付ける場合は、sandbox/approval解除やguard overrideを使わず、
+`orca terminal create --worktree path:<review checkout> --command 'codex --model gpt-6-astra -c model_reasoning_effort="high"'`
+の通常起動を選ぶ。nativeの認証/trust/permissionsは本人操作。起動しただけでは開始と数えない。
+依頼taskは固定repo/PR/full SHA/AC/非関与記録を含み、レビューcheckoutはcleanで同じSHA。
+
+`delivery-flow review-start --pr <N> --sha <full SHA> --task <task ID> --terminal <handle> --worktree <review path>
+--sender <自分のcoordinator handle> --run <run ID> --action-id <UUID>` はnative実モデル/effortとtui-idleを確認し、
+既存taskをworker-startで接続する。durable prompt stages、dispatch、process incarnationをOrbitへ記録する。
+独立性は元taskの関与歴で確認する。このコマンドは判定/status/Ready/mergeを代行しない。
+曖昧な送信結果は新規送信しない。記録のrequest IDを `orca orchestration request-show` で照会し、
+同じdurable requestの回収だけを行う。resultを取得した後、必須CI・現在SHAの署名verdict・自動gateを確認する。
+
+成果の回収は `delivery-flow record-review --report-file <独立reviewerのJSON>`。
+現在のopen PR headと実dispatch/task/modelを照合し、session・incarnation・結果を保存する。
+BLOCKEDやCHANGES_REQUIREDも開始済みの成果として保持するが、review:passedには転用しない。
+head変更後は新SHAの成果が必要。元reviewerの関与歴・実effortの証拠はreportで保持する。
+
+Orbitの全体状況は着手判断待ち・レビュー開始待ち・CI job順番待ち・VM準備を分ける。
+観測開始からの待ち時間は下限。過去の状態遷移や速度改善率を推測で作らない。

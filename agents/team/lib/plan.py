@@ -2,7 +2,7 @@
 
 Counts Todo / In Progress / In Review / open PR / recent 起票・Done・merge, lists one heuristic
 "次の一手" per open PR, and ranks implementation candidates with explicit exclusion reasons.
-Dependencies (blockedBy) are not returned by the CLI and stay 未確認. Nothing here starts a
+Dependencies and scoped authorization need the issue --relations and approved delivery pool; this older count only ranks candidates. Nothing here starts a
 model or agent, and the only output is stdout.
 """
 import argparse
@@ -279,6 +279,16 @@ def classify(team, todo, worktrees, worktree_record, prs, pr_record):
             entry.update(verdict='未確認', reasons=['本文に ' + '/'.join(words) + ' の記述 → 未確認（CLI は返さない。Linear で見る）'])
             excluded.append(entry)
             continue
+        # A missing or truncated ownership inventory cannot establish absence.
+        unknown = []
+        if worktrees is None or worktree_record.get('status') != 'success':
+            unknown.append('既存 worktree 未確認（' + worktree_record.get('reason', '一覧が不完全') + '）')
+        if prs is None or pr_record.get('status') != 'success':
+            unknown.append('PR 未確認（' + pr_record.get('reason', '一覧が不完全') + '）')
+        if unknown:
+            entry.update(verdict='未確認', reasons=unknown)
+            excluded.append(entry)
+            continue
         notes = []
         if worktrees is None:
             notes.append('既存 worktree 未確認（' + worktree_record.get('reason', 'worktree list') + '）')
@@ -290,7 +300,7 @@ def classify(team, todo, worktrees, worktree_record, prs, pr_record):
             notes.append('PR 未確認（' + pr_record.get('reason', 'gh') + '）')
         else:
             notes.append('PR なし')
-        entry.update(verdict='着手可', reasons=notes)
+        entry.update(verdict='着手候補', reasons=notes + ['依存・受入範囲・委任は着手前に現物確認'])
         ready.append(entry)
     ready.sort(key=lambda e: (PRIORITY_RANK.get(e['priority'], 9), e['number'] if e['number'] is not None else 10 ** 9))
     excluded.sort(key=lambda e: e['number'] if e['number'] is not None else 10 ** 9)
@@ -373,7 +383,7 @@ def compute(team, repo, project=None, days=3, wip=2, now=None):
             'Done は「updatedAt が窓内で state=Done」の件数。completedAt は CLI が返さない',
             '機構 / 製品は title の語（CI・レビュー・ゲート・workflow・relay・launcher・Actions）だけで分けた粗い分類',
             'state / team 名が違っても CLI は ok・0 件を返す。0 件は名前も確かめる',
-            '依存（blockedBy）は CLI が返さない。本文の語で拾ったものは未確認。Linear で見る',
+            '依存（blockedBy）は issue --relations で別途完全取得する。本文の語だけでは着手許可にしない',
             'open PR の次の一手は推測。確かめてから動く',
         ],
     }

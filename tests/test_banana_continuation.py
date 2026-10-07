@@ -340,6 +340,19 @@ class ObservationTests(unittest.TestCase):
             issue = dict(self.issue, **fields)
             self.assertFalse(self.observe([issue])[1])
 
+    def test_scoped_approval_wakes_a_human_label_only_when_body_matches(self):
+        from datetime import datetime, timezone
+        approved = {'repo': self.config['repo'], 'decision': 'APPROVED_WITH_CONDITIONS',
+                    'decidedAt': datetime.now(timezone.utc).isoformat(),
+                    'issues': [{'identifier': 'CAF-123', 'implementationApproved': True,
+                                'observationDigest': 'a' * 64}]}
+        issue = dict(self.issue, labels=['human-approval', 'risk:high'], descriptionHash='a' * 64)
+        with patch('delivery_flow.read', return_value=approved):
+            self.assertTrue(self.observe([issue])[1])
+            self.assertFalse(self.observe([dict(issue, descriptionHash='b' * 64)])[1])
+            self.assertFalse(self.observe([dict(issue, assignee='someone')])[1])
+            self.assertEqual(self.observe([issue])[0]['pool'], [('CAF-123', 'a' * 64)])
+
     def test_open_work_or_free_todo_wakes_for_actual_admission(self):
         self.assertTrue(self.observe([self.issue])[1])
         self.assertTrue(self.observe([dict(self.issue, stateType='started')])[1])
