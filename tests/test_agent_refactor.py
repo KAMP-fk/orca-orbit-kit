@@ -136,7 +136,7 @@ elif name in ('codex','claude'):
   sys.exit(cfg.get('probe_rc',0))
  verdict=cfg.get('verdict','PASS')
  mode=re.search(r'^- Review Mode: (fixed-pr|issue)',prompt,re.MULTILINE).group(1)
- report=cfg.get('report') or 'Issue: CAF-999 '+cfg.get('issue_title','Offline fixture')+'\n\nVerdict: '+verdict+'\n\nSummary:\nfixture\n\nAcceptance Criteria:\n\n* [x] fixture\n\nFindings:\n\n* なし\n\nRequired Changes:\n\n* なし\n\nVerification:\n\n* PR: https://github.com/test/repo/pull/1\n* Commit: '+cfg.get('report_sha',cfg.get('head_sha','a'*40))+'\n* CI: '+cfg.get('report_ci','PASS')+'\n* Tests: '+cfg.get('report_tests','PASS')+'\n* Reviewer: fixture-reviewer\n* Involvement: NOT_INVOLVED\n* Review Mode: '+mode+'\n'
+ report=cfg.get('report') or 'Issue: CAF-999 '+cfg.get('issue_title','Offline fixture')+'\n\nVerdict: '+verdict+'\n\nSummary:\n本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。\nfixture\n\nAcceptance Criteria:\n\n* [x] fixture\n\nFindings:\n\n* なし\n\nRequired Changes:\n\n* なし\n\nVerification:\n\n* PR: https://github.com/test/repo/pull/1\n* Commit: '+cfg.get('report_sha',cfg.get('head_sha','a'*40))+'\n* CI: '+cfg.get('report_ci','PASS')+'\n* Tests: '+cfg.get('report_tests','PASS')+'\n* Reviewer: fixture-reviewer\n* Involvement: NOT_INVOLVED\n* Review Mode: '+mode+'\n'
  if name=='codex': print(report)
  else:
   out({'type':'result','is_error':False,'session_id':'fixture-session','modelUsage':cfg.get('model_usage',{'claude-opus-5-5':{}}),'result':report} if not cfg.get('bad_metadata') else {'result':report})

@@ -295,6 +295,7 @@ def validate_verdict(packet):
     require('<関与の表明（未関与なら定型文）>' not in summary, 'Summary involvement declaration is a placeholder')
     non_involvement = '本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。'
     require(values['Involvement'] == 'NOT_INVOLVED' or non_involvement not in report, 'non-involvement declaration contradicts Involvement')
+    require(values['Involvement'] != 'NOT_INVOLVED' or non_involvement in summary, 'NOT_INVOLVED requires non-involvement declaration in Summary')
     require(values['CI'] in ('PASS', 'FAIL', 'UNKNOWN') and values['Tests'] in ('PASS', 'FAIL', 'UNKNOWN'), 'invalid CI or Tests value')
     selected = []
     for candidate in meta['prCandidates']:
