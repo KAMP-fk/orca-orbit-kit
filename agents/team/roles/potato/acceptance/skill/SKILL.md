@@ -17,7 +17,7 @@ Orca の品質ゲートの専門担当として受入判定を受け、固定版
 3役との連絡は [共通の連絡手順](/Users/kamp/orca/agents/team/references/communication.md) に従う。
 この受入プロトコルの出力形式は変えず、質問・返答・不足資料は Summary / Findings に記す。
 Banana が全原文を共通受信箱へ中継し、レビュー記録へ逐語転記する。Tomato は Sol で3役の記録を日報と日誌へ集約する。
-既に対象の実装・修正に関与したセッションは独立 PASS を出さず、未関与の正式な担当へ返す。
+既に対象の方針・実装・修正・指摘対応・中継依頼に関与したセッションは独立 PASS を出さず、未関与の正式な担当へ返す。
 skill 名・新しいタブ・モデル切替だけで独立性を証明しない。
 
 Orca で実行する場合は `review --kind acceptance --repo <checkout> --issue <ISSUE-ID>` を使う。
@@ -279,6 +279,7 @@ Issue: <ISSUE-ID> <TITLE>
 Verdict: PASS | CHANGES_REQUIRED | BLOCKED
 
 Summary:
+本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。
 <レビュー結果の簡潔な説明>
 
 Acceptance Criteria:
@@ -309,10 +310,13 @@ Verification:
 
 ### 記入規則
 
-- **Reviewer** は reviewer 自身の識別名。BLOCKED でも自分の識別名を記す。UNKNOWN（大小文字を問わず）、`-`、`<…>` の記入例は不可。**Involvement** は対象の方針・実装・修正への関与を
-  reviewer 自身が記入する。未関与は `NOT_INVOLVED`、関与は `INVOLVED`、確認不能は `UNKNOWN`。
+- **Reviewer** は reviewer 自身の識別名。BLOCKED でも自分の識別名を記す。UNKNOWN（大小文字を問わず）、`-`、`<…>` の記入例は不可。**Involvement** は対象の方針・実装・修正・指摘対応・中継依頼への関与を
+  reviewer 自身が記入する。すべてに関与していない場合だけ `NOT_INVOLVED`、関与は `INVOLVED`、確認不能は `UNKNOWN`。
   PASS は `NOT_INVOLVED` のときだけ。UNKNOWN は BLOCKED とし、関与があれば正式な未関与担当へ返す。
   launcher が未関与を代筆・補完してはいけない。空欄・省略・不正値は保存時の検証で拒否する。
+- **Summary** に関与の表明を1行書く。`NOT_INVOLVED` の定型文は「本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。」。
+  関与がある場合は何に関与したか、確認不能の場合は何を確認できないかを代わりに書き、Involvement をそれぞれ `INVOLVED` / `UNKNOWN` にする。
+  雛形の未関与の定型文を、関与あり・確認不能のまま残さない。
 - **Review Mode** は launcher の `reviewMode` と一致する1語だけを記入する。
   汎用 Issue 判定を固定 PR の R 段へ読み替えない。証拠の限界を正直に記す規律は両モードで維持する。
 - **Verdict 行は3語のうち1つだけ**を書く（`|` を残さない）。

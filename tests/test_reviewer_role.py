@@ -9,6 +9,28 @@ import unittest
 import test_agent_refactor as fixtures
 
 
+class ReviewerInvolvementContractTests(unittest.TestCase):
+    def test_acceptance_involvement_scope_and_summary_declaration(self):
+        root = fixtures.REPO_ROOT / 'agents/team/roles/potato'
+        scope = '方針・実装・修正・指摘対応・中継依頼'
+        declaration = f'本セッションは対象の{scope}のいずれにも関与していない。'
+        skill = (root / 'acceptance/skill/SKILL.md').read_text()
+        template, rules = skill.split('### 記入規則', 1)
+        self.assertIn(declaration, template.split('Summary:', 1)[1].split('Acceptance Criteria:', 1)[0])
+        self.assertIn(f'**Involvement** は対象の{scope}への関与', rules)
+        self.assertIn('すべてに関与していない場合だけ `NOT_INVOLVED`', rules)
+        self.assertIn(declaration, rules)
+        self.assertIn('何に関与したか', rules)
+        self.assertIn('何を確認できないか', rules)
+        for relative in ('acceptance/README.md', 'acceptance/references/legacy-pipeline.md',
+                         'acceptance/claude/agent.md', 'acceptance/claude/legacy-agent.md',
+                         'acceptance/lib/backend.sh', 'skill/SKILL.md'):
+            with self.subTest(path=relative):
+                content = (root / relative).read_text()
+                self.assertIn(scope, content)
+                self.assertIn(declaration, content)
+
+
 class ReviewerRoleTests(unittest.TestCase):
     setUp = fixtures.OfflineCase.setUp
     run_cli = fixtures.OfflineCase.run_cli
@@ -43,6 +65,8 @@ class ReviewerRoleTests(unittest.TestCase):
                 context = json.loads(self.model_context_log.read_text().splitlines()[-1])
                 prompt = context['argv'][-1]
                 self.assertIn('- Review Mode: fixed-pr', prompt)
+                self.assertIn('Involvement は対象の方針・実装・修正・指摘対応・中継依頼への関与', prompt)
+                self.assertIn('本セッションは対象の方針・実装・修正・指摘対応・中継依頼のいずれにも関与していない。', prompt)
                 if backend == 'claude':
                     self.assertIn('現行正本が定める R 段', prompt)
                 else:
