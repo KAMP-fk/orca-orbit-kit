@@ -32,7 +32,8 @@ def project_request(role, args, parser):
                             access=args.access or ('read' if args.read_only else None),
                             base_ref=args.base_ref, task_id=args.task_id, origin=args.from_role,
                             model=args.model, effort=args.effort, workspace=existing, dry_run=args.dry_run,
-                            worker_backend=args.worker_backend, expected_sha=args.expected_sha)
+                            worker_backend=args.worker_backend, expected_sha=args.expected_sha,
+                            development=args.development)
         if args.dry_run:
             print(json.dumps(plan, ensure_ascii=False, indent=2))
             return 0
@@ -56,6 +57,7 @@ def main():
     parser.add_argument('--task-id', help='repo 内の依頼 ID。同じ ID の依頼は再実行しない')
     parser.add_argument('--from-role', type=resolve_role, choices=('owner', 'tomato', 'banana', 'review'), default='owner', help='依頼元の記録。追加の承認ではない')
     parser.add_argument('--worker-backend', choices=('codex', 'devin'), default='codex', help=argparse.SUPPRESS)
+    parser.add_argument('--development', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--expected-sha', help='読み取り案件の固定 full HEAD SHA')
     parser.add_argument('--read-only', action='store_true', help='今回の実行を読み取り専用に制限する')
     parser.add_argument('--model', help='今回の明示モデル指定。省略時は各 profile の既定')
@@ -90,7 +92,7 @@ def main():
         parser.error('--json は Orca タスク実行と一緒に指定する')
     if args.repo:
         return project_request(role, args, parser)
-    if args.access or args.base_ref or args.task_id or args.from_role != 'owner' or args.expected_sha or args.worker_backend != 'codex':
+    if args.access or args.base_ref or args.task_id or args.from_role != 'owner' or args.expected_sha or args.worker_backend != 'codex' or args.development:
         parser.error('案件の access / base-ref / task-id / from-role は --repo と一緒に指定する')
     if args.worktree and not (args.orca or task):
         parser.error('--worktree は Orca 実行と一緒に指定する')

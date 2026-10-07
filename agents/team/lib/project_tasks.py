@@ -27,6 +27,11 @@ def job_path(key):
     return root / key
 
 
+def is_development(record):
+    """Only unmarked legacy Devin records infer development from the engine."""
+    return record.get('development', record.get('workerBackend') == 'devin')
+
+
 @contextmanager
 def locked_job(job):
     with (job / 'lock').open('a') as lock:
@@ -38,7 +43,8 @@ def locked_job(job):
 
 
 def request_plan(role, repo, prompt, access=None, base_ref=None, task_id=None, origin='owner',
-                 model=None, effort=None, workspace=None, dry_run=False, worker_backend='codex', expected_sha=None):
+                 model=None, effort=None, workspace=None, dry_run=False, worker_backend='codex', expected_sha=None,
+                 development=False):
     if role not in LAUNCH_ROLES:
         raise ValueError('受入判定は review --kind acceptance を使う')
     access = access or ('edit' if role in EDIT_ROLES else 'read')
@@ -46,6 +52,10 @@ def request_plan(role, repo, prompt, access=None, base_ref=None, task_id=None, o
         raise ValueError('編集依頼は開発窓口 Banana へ渡してください')
     if access not in ('edit', 'read') or not prompt or not prompt.strip():
         raise ValueError('access と空でない今回の依頼が必要')
+    if development and (role != 'banana' or access != 'edit'):
+        raise ValueError('開発依頼は Banana の編集案件を指定する')
+    if development and workspace:
+        raise ValueError('開発は専用 checkout を作る。既存 checkout は追加実行しない')
     if base_ref and (access != 'edit' or workspace or base_ref.startswith('-')):
         raise ValueError('base-ref は新規の編集 worktree 用 ref を指定する')
     source = observe(repo)
@@ -63,8 +73,6 @@ def request_plan(role, repo, prompt, access=None, base_ref=None, task_id=None, o
         raise ValueError('再利用する worktree は同じ repo の checkout root を指定する')
     base_sha = resolve_ref(root, base_ref) if base_ref else None
     # Use the canonical launcher to validate persona/model/settings before a mutation.
-    if worker_backend == 'devin' and workspace:
-        raise ValueError('Devin の開発は専用 checkout を作る。既存 checkout は追加実行しない')
     spec = execution_spec(role, Path(target['repositoryRoot']), prompt, model=model, effort=effort,
                           dry_run=dry_run, read_only=access == 'read', worker_backend=worker_backend)
     effective_backend = spec['backend']
@@ -72,6 +80,9 @@ def request_plan(role, repo, prompt, access=None, base_ref=None, task_id=None, o
                 'originRole': origin, 'model': model, 'effort': spec['effort'],
                 'existingWorkspace': str(Path(workspace).resolve()) if workspace else None,
                 'workerBackend': effective_backend, 'expectedSha': expected_sha}
+    if development:
+        # Preserve ordinary maintenance/read request hashes and replay behavior.
+        identity['development'] = True
     if effective_backend == 'claude':
         # Prior Codex results cannot satisfy a newly pinned Claude request.
         identity['model'] = spec['requestedModel']
@@ -83,12 +94,12 @@ def request_plan(role, repo, prompt, access=None, base_ref=None, task_id=None, o
     slug = re.sub('[^a-z0-9-]+', '-', task_id.lower()).strip('-')[:24] or 'task'
     name = role + '-' + slug + '-' + key[:8]
     requested_branch = None
-    if worker_backend == 'devin':
+    if development:
         from project_identity import is_concafe_path
         if is_concafe_path(root):
             issue = re.fullmatch(r'caf-([1-9][0-9]*)(?:-.+)?', task_id, re.I)
             if not issue:
-                raise ValueError('concafe の Devin 開発は task-id に CAF-<番号> の案件 ID を指定する')
+                raise ValueError('concafe の開発は task-id に CAF-<番号> の案件 ID を指定する')
             requested_branch = name = 'codex/caf-' + issue[1] + '-' + key[:8]
     return {'schemaVersion': 1, 'taskId': task_id, 'key': key, 'requestHash': request_hash,
             'role': role, 'originRole': origin, 'coordinatorRole': home_role(role) if role in EDIT_ROLES else origin,
@@ -98,7 +109,7 @@ def request_plan(role, repo, prompt, access=None, base_ref=None, task_id=None, o
             'targetPath': target['repositoryRoot'], 'ownsWorktree': False,
             'name': name, 'requestedBranch': requested_branch, 'jobPath': str(job_path(key)),
             'requestedModel': spec['requestedModel'], 'requestedEffort': spec['effort'],
-            'workerBackend': effective_backend,
+            'workerBackend': effective_backend, 'development': development,
             'expectedSha': expected_sha,
             'startsSession': False}
 
@@ -167,8 +178,8 @@ def _collect(orca, record, job, returncode):
                   stage='collected' if (job / 'session/closed.json').is_file() else 'execution-unconfirmed')
     record['after'] = observe(record['targetPath'])
     if record.get('requestedBranch') and record['after']['branch'] != record['requestedBranch']:
-        raise ValueError('Devin の成果 branch が案件の固定 branch と一致しない。保持して停止')
-    development = record.get('workerBackend') == 'devin'
+        raise ValueError('開発の成果 branch が案件の固定 branch と一致しない。保持して停止')
+    development = is_development(record)
     record['cleanup'] = ('review-pending-retained' if development and not returncode and record['stage'] == 'collected'
                          else workspaces.release_checkout(orca, record, job)
                          if not returncode and record['stage'] == 'collected' else 'failure-retained')

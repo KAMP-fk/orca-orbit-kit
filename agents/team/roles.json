@@ -32,9 +32,10 @@
     "consultation": [
       "tomato"
     ],
-    "workspace": "Banana｜開発・Devin窓口",
+    "workspace": "Banana｜開発窓口",
     "workspaceRoot": "~/orca/workspaces/brain/Banana",
     "workspaceAliases": [
+      "Banana｜開発・Devin窓口",
       "旧Banana｜既存実行・履歴",
       "Banana｜技術判断・実装・後片付け",
       "Banana｜開発・レビュー取りまとめ"
@@ -47,7 +48,7 @@
     "tabAutostart": true,
     "access": "edit",
     "entrypoint": "banana",
-    "implementationBackend": "devin"
+    "implementationBackend": "codex"
   },
   "review": {
     "publicName": "potato",

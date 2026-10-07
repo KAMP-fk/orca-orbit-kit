@@ -14,7 +14,7 @@ from task_session import save
 def prepare_review(orca, record, job):
     current = observe(record['targetPath'])
     if current['dirty'] or current['headSha'] != record['after']['headSha']:
-        raise ValueError('Devin の成果が未コミットまたは回収後に変化。開発 checkout を保全して Banana に返す')
+        raise ValueError('開発の成果が未コミットまたは回収後に変化。開発 checkout を保全して Banana に返す')
     if current['headSha'] == record['baseSha']:
         return {'nextRole': 'banana', 'status': 'no-implementation-commit',
                 'headSha': current['headSha'], 'formalVerdict': 'not-issued'}
@@ -38,8 +38,9 @@ def prepare_review(orca, record, job):
     if target['dirty'] or target['headSha'] != current['headSha']:
         raise ValueError('レビュー checkout が固定した成果と一致しない。両方を保持')
     request = review_job / 'request.md'
-    request.write_text('Banana / Devin の成果を、実装に未関与の担当として確認する。\n'
-                       '開発担当: banana / devin\n依頼 ID: ' + record['taskId']
+    request.write_text('Banana の開発成果を、実装に未関与の担当として確認する。\n'
+                       '開発担当: banana\n実装 backend: ' + record['workerBackend']
+                       + '\n依頼 ID: ' + record['taskId']
                        + '\n固定 full HEAD SHA: ' + current['headSha']
                        + '\n開発 checkout: ' + record['targetPath']
                        + '\n結果: ' + str(job / 'session/result.txt')

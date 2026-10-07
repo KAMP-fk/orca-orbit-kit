@@ -61,8 +61,7 @@ def checkout_parent(orca, record, repo):
 
 def checkout_title(record):
     task = ''.join(ch for ch in record['taskId'] if ch.isprintable())[:100]
-    purpose = role_label('review') if record['role'] == 'review' else (
-        '開発（Devin）' if record.get('workerBackend') == 'devin' else '開発（Codex）')
+    purpose = role_label('review') if record['role'] == 'review' else '開発'
     return task + '｜' + purpose
 
 

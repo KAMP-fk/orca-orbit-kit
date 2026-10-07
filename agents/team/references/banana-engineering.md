@@ -1,6 +1,6 @@
-# Banana に Devin を組み込む開発経路
+# Banana の Codex 開発と独立レビューへの引渡し
 
-2026-10-06 JST の Owner 追補を初回の統合案より優先する。
+2026-10-07 JST の持ち主の決定 [[2026-10-07-Devinを開発フローから外す]] を適用する。
 Tomato は幅広い相談・目的の整理、Banana は独立した開発窓口。両者の領域は一部重なり、
 開発の指示・質問・報告で連携する。Owner は Banana に直接依頼できる。
 Potato は Banana が受け付けた案件の独立 checkout で必要時だけ起動する。
@@ -8,7 +8,7 @@ Potato は Banana が受け付けた案件の独立 checkout で必要時だけ�
 
 ```text
 Tomato ⇄ Banana
-           └─ 開発 checkout（Devin CLI）
+           └─ 開発 checkout（Codex / Sol）
                 └─ 固定 full SHA の独立 Potato checkout
                          └─ 指摘を Banana へ / 正式判定は対象契約の別タスクへ
 ```
@@ -17,18 +17,18 @@ Tomato ⇄ Banana
 
 ```sh
 banana --inbox
-banana develop --repo /absolute/repo --task-id feature-001 --from-role tomato --prompt-file /absolute/request.md --dry-run
-banana develop --repo /absolute/repo --task-id feature-001 --from-role tomato --prompt-file /absolute/request.md
+banana develop --repo /absolute/repo --task-id feature-001 --from-role tomato --model gpt-6.1-sol --effort medium --prompt-file /absolute/request.md --dry-run
+banana develop --repo /absolute/repo --task-id feature-001 --from-role tomato --model gpt-6.1-sol --effort medium --prompt-file /absolute/request.md
 banana review --repo /absolute/repo --task-id feature-001 --dry-run
 banana review --repo /absolute/repo --task-id feature-001
 ```
 
-`develop` はローカルで発見したベンダー `devin` の `--print -- <prompt>` を使う。
-2026-10-06 の実機 `devin --help` で非対話実行、prompt 区切り、既定の workspace trust を確認した。
-Codex 用 model / effort を渡さず、trust / permission を迂回しない。
-バイナリなし、信頼・認証未確認、非ゼロ終了、空の結果は成功にしない。Codex / Claude へ fallback しない。
-Devin の認証・モデル実設定はベンダーに委ね、設定や token を source へコピーしない。
-実装エンジンと、調査・保守に使う Banana の Codex Sol medium は別に扱う。
+`develop` は Banana の Codex 経路を使い、`--worker-backend` の指定は拒否する。
+`--model` / `--effort` は Codex の明示指定として渡す（[sol-effort.md](sol-effort.md)）。
+開発の進行は plan / record の `development: true` で選び、backend と切り離す。
+通常の保守・読み取りの Codex 案件は開発扱いにしない。
+信頼・権限を迂回せず、バイナリなし、認証未確認、非ゼロ終了、空の結果は成功にしない。
+Devin Playbooks の `!implement` / `!plan` 等のラベルは付けない。
 
 `--repo` は Orca に登録済みの Git checkout を指定する。
 共通の repo/task ID lock と耐久 fence を使い、作成・起動の曖昧な応答を再送しない。
@@ -36,23 +36,24 @@ Banana を進行担当として専用 checkout を作る。Orca の親子表示�
 別プロジェクトの開発 checkout はその対象 workspace を親にする。Banana との関係は coordinator として記録する。
 同じ repo の案件は Banana ホームを親にできる。元の未コミット変更はコピーしない。
 concafe は task-id に `CAF-<番号>` の案件 ID を指定し、既存 CI 互換の `codex/caf-<番号>-<識別子>` branch を使う。
-Devin は渡された checkout だけで実装・必要な検査・成果 commit を行う。
+Codex は渡された checkout だけで実装・必要な検査・成果 commit を行う。
 受入条件、push / PR / 外部更新の実際の委任は元の依頼と現行プロジェクト契約に従う。
 
 ## レビューへ渡す
 
-Devin の結果と終了を保存してから、clean な実装 commit の現在 full SHA を確かめる。
+開発の結果と終了を保存してから、clean な実装 commit の現在 full SHA を確かめる。
 未コミット成果は保持して Banana に返す。commit が増えていない場合はその結果を Banana に返す。
 commit が増えた場合はその SHA から別の Potato checkout を作り、開発 checkout の子として記録する。
 実装の変更や commit を削除せず、両 checkout を統合・レビュー待ちとして保全する。
 
 保存先は共通案件の `record.json`、`session/result.txt` と `review/handoff.json`。
 引渡しには元の依頼、実装担当、開発 checkout、固定 SHA、結果の場所を含める。
-`banana review` は依頼内容・開発成果・レビュー checkout が保存時から変化していないことを再確認する。
+`banana review` は開発の印を持つ成果を受ける。印のない旧 `workerBackend: devin` 記録も開発として読み、書換えない。
+依頼内容・開発成果・レビュー checkout が保存時から変化していないことを再確認する。
 汎用技術確認は新しい読み取り専用の Opus 5.5 / high の案件として Potato に渡し、同じ task ID の再実行を防ぐ。
 指摘は Banana が受け、同じ案件の成果を使って修正する。
 
-concafe は `final` の引渡し packet とし、最新 Owner 指示の Opus 5.5 / high を指定して未関与の別タスクに渡す。
+concafe は `final` の引渡し packet とし、対象プロジェクトの最新 Owner 指示で指定された実モデル・effort の未関与の別タスクに渡す。
 ここで最終 verdict を発行したり、別 Codex チャットへ自動送信したりしない。
 別タスク待ちは通常実行 exit 3、計画だけの dry-run は exit 0。
 必須 CI・固定 SHA 署名・自動 Ready / guarded auto-merge・人間ゲートは維持する。
@@ -60,15 +61,15 @@ concafe は `final` の引渡し packet とし、最新 Owner 指示の Opus 5.5
 ## 外部 Issue adapter と既存実行
 
 既存 `devin-flow` / `banana devin start|sync|status|reconcile` は
-[外部 Issue adapter](devin-operations.md)。ローカル CLI の案件とは別の台帳・排他契約を使う。
-外部 adapter は未設定のまま。ローカル CLI 組込を実 Cloud Session / PR / merge の成功証拠にしない。
+[外部 Issue adapter](devin-operations.md)。開発フローから外すが、CLI・設定・実装・台帳は保全する。Codex の案件とは別の台帳・排他契約を使う。
+外部 adapter は未設定のまま。fixture の検査を実 Cloud Session / PR / merge の成功証拠にしない。
 同じ Issue に既存実行がある場合は新開始を重ねず、現物と担当を確認する。
 旧 coordinator・時計 automation・既存セッションはこの変更では停止・再起動していない。
 新規タブの Banana 受付はモデル無し。既存セッションが新しい指示を再読込したとは扱わない。
 
-## 検証と保全
+## 初回統合時の検証記録（2026-10-06、現行の動作確認ではない）
 
-この変更はモデル・外部サービスを使わず、fixture CLI と一時 Git / Orca で検査する。
+初回統合はモデル・外部サービスを使わず、fixture CLI と一時 Git / Orca で検査する。
 全体検査 `python3 -B -m unittest discover -s tests -q` は
 367件・281.793秒・exit 0（OK）。新規検査は CLI 選択、開発 / Potato の親子関係、
 固定 SHA、read-only 引渡し、未コミット成果・空結果・失敗の保全、曖昧な作成の fence、

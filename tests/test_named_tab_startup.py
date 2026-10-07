@@ -96,7 +96,7 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
                 if role not in ('tomato',):
                     self.assertEqual(launches, [], result.stdout + result.stderr)
                     if role == 'banana':
-                        self.assertIn('Banana｜開発・Devin窓口', result.stdout)
+                        self.assertIn('Banana｜開発窓口', result.stdout)
                         self.assertIn('banana develop', result.stdout)
                     continue
                 self.assertEqual(len(launches), 1)

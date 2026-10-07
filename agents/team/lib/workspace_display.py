@@ -16,13 +16,13 @@ def specs():
         (ROOT.parent.parent, 'Orca｜エージェント基盤',
          'Banana担当の共有基盤。ソースはagents/team、役別定義はroles。エージェント状況タブで稼働・Devin receipt・品質待ちを観測。', True),
         (workspace_root('tomato'), ROLES['tomato']['workspace'],
-         'Fable / medium で広い相談・意図・判断材料を整理。開発領域はBananaと依頼・質問・報告で連携。調査・実装はCodex / Devin。', True),
+         'Fable / medium で広い相談・意図・判断材料を整理。開発領域はBananaと依頼・質問・報告で連携。調査・実装はCodex。', True),
         (workspace_root('banana'), ROLES['banana']['workspace'],
-         '独立した開発窓口。Ownerの直接依頼とTomatoからの依頼を受領。技術判断・Devin案件・Potatoへの引渡しを担当。Tomatoには意図や受入範囲を相談する。', True),
+         '独立した開発窓口。Ownerの直接依頼とTomatoからの依頼を受領。技術判断・開発案件・Potatoへの引渡しを担当。Tomatoには意図や受入範囲を相談する。', True),
         (workspace_root('review'), 'Potato｜レビュー受付',
          'Opus 5.5 / high 固定の独立レビュー窓口。実レビューは案件ごとの別ワークツリーで実行。指摘はBananaへ返し、正式判定は対象プロジェクトの独立タスクへ引き渡す。別モデルへ切り替えない。', False),
         (home / '.agents/skills', 'Skills｜スキル管理',
-         'スキル管理。相談はTomato、開発窓口はBanana、実装はDevin、品質ゲートはPotato。', False),
+         'スキル管理。相談はTomato、開発窓口はBanana、実装はCodex、品質ゲートはPotato。', False),
     ]
 
 

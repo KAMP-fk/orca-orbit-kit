@@ -80,24 +80,10 @@ class ProjectTaskTests(unittest.TestCase):
   subprocess.run(['git','add','change.txt'],check=True)
   subprocess.run(['git','commit','-m','fixture change'],check=True,stdout=subprocess.DEVNULL)
  if behavior=='ignored': Path('ignored.cache').write_text('owned artifact')
+ if behavior=='empty': os.environ['FIXTURE_NO_REPORT']='1'
+ if behavior=='error': os.environ['NAMED_AGENT_FIXTURE_EXIT']='1'
  print('fixture Codex is working'""")
         (self.fixture.fixture.bin / 'codex').write_text(model)
-        devin = self.fixture.fixture.bin / 'devin'
-        devin.write_text('''#!/usr/bin/python3
-import os, subprocess, sys
-from pathlib import Path
-with Path(os.environ['NAMED_AGENT_FIXTURE_LOG']+'.calls').open('a') as calls:
- calls.write('devin-start\\n')
-behavior=os.environ.get('FIXTURE_DEVIN_BEHAVIOR','commit')
-if behavior in ('commit','dirty'):
- Path('devin-change.txt').write_text('fixture Devin work\\n')
-if behavior=='commit':
- subprocess.run(['git','add','devin-change.txt'],check=True)
- subprocess.run(['git','commit','-m','fixture Devin change'],check=True,stdout=subprocess.DEVNULL)
-if behavior!='empty': print('fixture Devin implementation result')
-if behavior=='error': sys.exit(1)
-''')
-        devin.chmod(0o755)
 
     def git(self, *args, cwd=None):
         env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
@@ -204,26 +190,68 @@ if behavior=='error': sys.exit(1)
         return len(path.read_text().splitlines()) if path.exists() else 0
 
     def development_plan(self, **kwargs):
+        os.environ.setdefault('FIXTURE_PROJECT_BEHAVIOR', 'commit')
         return project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
-                                           worker_backend='devin', task_id='fixture-task', origin='tomato', **kwargs)
+                                           development=True, task_id='fixture-task', origin='tomato', **kwargs)
 
-    def test_public_banana_develop_preview_selects_devin_without_calls_or_state(self):
+    def test_public_banana_develop_preview_selects_codex_without_calls_or_state(self):
+        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         request = self.base / 'request with spaces.md'
         request.write_text('Fixture implementation request')
         result = subprocess.run([sys.executable, str(PACKAGE / 'bin/banana'), 'develop',
-                                 '--repo', str(self.repo), '--task-id', 'wrapper-preview',
+                                 '--repo', str(self.repo), '--task-id', 'CAF-123',
+                                 '--model', 'gpt-6.1-sol', '--effort', 'high',
                                  '--from-role', 'tomato', '--prompt-file', str(request), '--dry-run'],
                                 env=os.environ.copy(), text=True, capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         plan = json.loads(result.stdout)
-        self.assertEqual(plan['backend'], 'devin')
+        self.assertEqual(plan['backend'], 'codex')
+        self.assertTrue(plan['development'])
+        self.assertEqual(plan['workerBackend'], 'codex')
+        self.assertEqual(plan['taskId'], 'CAF-123')
+        self.assertRegex(plan['requestedBranch'], r'^codex/caf-123-[a-f0-9]{8}$')
+        self.assertEqual(plan['requestedModel'], 'gpt-6.1-sol')
+        self.assertEqual(plan['requestedEffort'], 'high')
         self.assertEqual(plan['originRole'], 'tomato')
         self.assertEqual(plan['coordinatorRole'], 'banana')
         self.assertFalse(plan['startsSession'])
         self.assertFalse(Path(plan['jobPath']).exists())
         self.assertEqual(self.model_calls(), 0)
 
-    def test_unknown_review_checkout_creation_is_fenced_after_devin_finishes(self):
+    def test_public_banana_develop_rejects_backend_selection(self):
+        for option in (['--worker-backend', 'codex'], ['--worker-backend=devin'],
+                       ['--worker-b', 'devin']):
+            with self.subTest(option=option):
+                result = subprocess.run([sys.executable, str(PACKAGE / 'bin/banana'), 'develop',
+                                         '--repo', str(self.repo), *option, '--dry-run', 'request'],
+                                        env=os.environ.copy(), text=True, capture_output=True, timeout=15)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('--worker-backend', result.stderr)
+        self.assertFalse((self.base / 'projects').exists())
+        self.assertEqual(self.model_calls(), 0)
+
+    def test_development_rejects_reuse_read_and_missing_caf_id(self):
+        for options in ({'workspace': self.repo}, {'access': 'read'}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.development_plan(**options)
+        with self.assertRaises(ValueError):
+            project_tasks.request_plan('tomato', self.repo, 'request', development=True)
+        self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
+        with self.assertRaisesRegex(ValueError, 'CAF-'):
+            self.development_plan()
+        self.assertFalse(self.calls)
+        self.assertEqual(self.model_calls(), 0)
+
+    def test_development_flag_is_part_of_request_identity(self):
+        maintenance = self.plan()
+        development = self.development_plan()
+        self.assertFalse(maintenance['development'])
+        self.assertNotEqual(maintenance['requestHash'], development['requestHash'])
+        development_record = dict(maintenance, development=True)
+        self.assertTrue(project_tasks.is_development(development_record))
+        self.assertFalse(project_tasks.is_development(dict(maintenance, workerBackend='devin')))
+
+    def test_unknown_review_checkout_creation_is_fenced_after_codex_finishes(self):
         original = self.call
         def unavailable(orca, *args):
             if args[:2] == ('worktree', 'create') and args[args.index('--name') + 1].startswith('review-'):
@@ -240,18 +268,19 @@ if behavior=='error': sys.exit(1)
         self.assertEqual(len(self.calls), calls)
         self.assertEqual(self.model_calls(), 1)
 
-    def test_devin_uses_banana_child_then_a_separate_pinned_review_child(self):
+    def test_codex_development_uses_banana_child_then_a_separate_pinned_review_child(self):
         plan = self.development_plan()
         rc, record = self.run_job(plan)
         self.assertEqual(rc, 0)
-        self.assertEqual(record['backend'], 'devin')
+        self.assertEqual(record['backend'], 'codex')
+        self.assertTrue(record['development'])
         self.assertEqual(record['cleanup'], 'review-pending-retained')
         self.assertEqual(self.model_calls(), 1)
         self.assertEqual(len(self.worktrees), 2)
         implementation, review = self.worktrees
         self.assertEqual(implementation['parentWorktreeId'], 'fixture-repo::' + str(self.repo))
         self.assertEqual(record['coordinatorWorktreeId'], 'banana::' + str(role_contract.workspace_root('banana')))
-        self.assertIn('開発（Devin）', implementation['displayName'])
+        self.assertIn('開発', implementation['displayName'])
         self.assertIn('Potato', review['displayName'])
         self.assertEqual(review['parentWorktreeId'], implementation['id'])
         self.assertEqual(self.git('rev-parse', 'HEAD', cwd=Path(review['path'])), record['after']['headSha'])
@@ -259,8 +288,8 @@ if behavior=='error': sys.exit(1)
         self.assertEqual(record['handoff']['reviewPlan']['kind'], 'technical')
         self.assertFalse(record['handoff']['startsSession'])
         request = json.loads((Path(plan['jobPath']) / 'session/request.json').read_text())
-        self.assertEqual(request['collector'], 'devin-print')
-        self.assertIn('--print', request['command'])
+        self.assertEqual(request['collector'], 'codex')
+        self.assertIn('exec', request['command'])
         self.assertFalse(any('trust' in value or 'permission' in value for value in request['command'][:-1]))
         self.assertEqual(record['handoff']['formalVerdict'], 'not-issued')
         self.assertTrue(Path(implementation['path']).is_dir())
@@ -286,7 +315,7 @@ if behavior=='error': sys.exit(1)
         self.assertFalse(any(call[:2] == ('worktree', 'create') for call in self.calls))
         self.assertEqual(self.model_calls(), 0)
 
-    def test_devin_review_saved_intake_detects_changed_source_before_launch(self):
+    def test_codex_development_review_saved_intake_detects_changed_source_before_launch(self):
         rc, record = self.run_job(self.development_plan())
         self.assertEqual(rc, 0)
         def preview():
@@ -301,7 +330,32 @@ if behavior=='error': sys.exit(1)
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.model_calls(), 1)
 
-    def test_review_of_devin_result_uses_read_only_scope_and_returns_to_banana(self):
+    def test_review_saved_accepts_unmarked_legacy_devin_but_rejects_non_development(self):
+        plan = self.development_plan()
+        rc, record = self.run_job(plan)
+        self.assertEqual(rc, 0)
+        path = Path(plan['jobPath']) / 'record.json'
+        record.pop('development')
+        record['workerBackend'] = 'devin'
+        path.write_text(json.dumps(record))
+        command = [sys.executable, str(PACKAGE / 'bin/banana'), 'review',
+                   '--repo', str(self.repo), '--task-id', 'fixture-task', '--dry-run']
+        result = subprocess.run(command, env=os.environ.copy(), text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['headSha'], record['handoff']['headSha'])
+        for backend, marked in (('codex', None), ('codex', False), ('devin', False)):
+            with self.subTest(backend=backend, marked=marked):
+                record['workerBackend'] = backend
+                if marked is None:
+                    record.pop('development', None)
+                else:
+                    record['development'] = marked
+                path.write_text(json.dumps(record))
+                result = subprocess.run(command, env=os.environ.copy(), text=True, capture_output=True, timeout=15)
+                self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.model_calls(), 1)
+
+    def test_review_of_codex_development_result_uses_read_only_scope_and_returns_to_banana(self):
         _, development = self.run_job(self.development_plan())
         handoff = development['handoff']
         plan = project_tasks.request_plan('review', Path(handoff['targetPath']),
@@ -317,37 +371,38 @@ if behavior=='error': sys.exit(1)
         self.assertEqual(len(self.worktrees), 2)
         self.assertEqual(self.model_calls(), 2)
 
-    def test_uncommitted_devin_work_is_retained_without_review_allocation(self):
-        os.environ['FIXTURE_DEVIN_BEHAVIOR'] = 'dirty'
+    def test_uncommitted_codex_development_work_is_retained_without_review_allocation(self):
+        os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'dirty'
         rc, record = self.run_job(self.development_plan())
         self.assertEqual(rc, 4)
         self.assertEqual(len(self.worktrees), 1)
-        self.assertTrue((Path(record['targetPath']) / 'devin-change.txt').is_file())
+        self.assertTrue((Path(record['targetPath']) / 'change.txt').is_file())
         self.assertNotEqual(record['handoff']['nextRole'], 'review')
 
-    def test_no_new_devin_commit_is_returned_to_banana(self):
-        os.environ['FIXTURE_DEVIN_BEHAVIOR'] = 'none'
+    def test_no_new_codex_development_commit_is_returned_to_banana(self):
+        os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'none'
         rc, record = self.run_job(self.development_plan())
         self.assertEqual(rc, 0)
         self.assertEqual(len(self.worktrees), 1)
         self.assertEqual(record['handoff']['nextRole'], 'banana')
         self.assertEqual(record['handoff']['status'], 'no-implementation-commit')
 
-    def test_empty_or_failed_devin_result_never_allocates_review(self):
+    def test_empty_or_failed_codex_development_result_never_allocates_review(self):
         for behavior in ('empty', 'error'):
             with self.subTest(behavior=behavior):
-                os.environ['FIXTURE_DEVIN_BEHAVIOR'] = behavior
+                os.environ['FIXTURE_PROJECT_BEHAVIOR'] = behavior
                 plan = project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
-                                                   worker_backend='devin', task_id='devin-' + behavior)
+                                                   development=True, task_id='development-' + behavior)
                 rc, record = self.run_job(plan)
                 self.assertNotEqual(rc, 0)
                 self.assertNotEqual(record['handoff']['nextRole'], 'review')
         self.assertEqual(len(self.worktrees), 2)
 
-    def test_concafe_devin_preserves_branch_policy_and_separate_opus_review(self):
+    def test_concafe_codex_development_preserves_branch_policy_and_separate_opus_review(self):
+        os.environ['FIXTURE_PROJECT_BEHAVIOR'] = 'commit'
         self.git('remote', 'add', 'origin', 'git@github.com:KAMP-fk/concafe-techo.git')
         plan = project_tasks.request_plan('banana', self.repo, 'Fixture implementation request',
-                                           worker_backend='devin', task_id='CAF-123', origin='tomato')
+                                           development=True, task_id='CAF-123', origin='tomato')
         self.assertTrue(plan['name'].startswith('codex/caf-123-'))
         rc, record = self.run_job(plan)
         self.assertEqual(rc, 0)
@@ -359,11 +414,10 @@ if behavior=='error': sys.exit(1)
         self.assertFalse(review['executableHere'])
         self.assertEqual(self.model_calls(), 1)
 
-    def test_missing_devin_is_blocked_before_allocation_without_fallback(self):
-        (self.fixture.fixture.bin / 'devin').unlink()
+    def test_development_needs_no_devin_cli(self):
         original = project_workspaces.shutil.which
-        with mock.patch('worker_launch.shutil.which', side_effect=lambda name: None if name == 'devin' else original(name)), self.assertRaisesRegex(ValueError, 'Devin CLI'):
-            self.development_plan()
+        with mock.patch('worker_launch.shutil.which', side_effect=lambda name: None if name == 'devin' else original(name)):
+            self.assertEqual(self.development_plan()['backend'], 'codex')
         self.assertFalse(self.calls)
         self.assertEqual(self.model_calls(), 0)
 
