@@ -41,12 +41,15 @@ fetch_linear() {
       evidence_invalid linear.related "$PACKET/linear/issue.json" true "$IDENT" "unsafe related Issue identifier"
       continue
     fi
-    if evidence_capture "linear.related.$rid" "$PACKET/linear/related/${rid}.json" true "$rid" "$ORCA_BIN" linear issue "$rid" --full --json; then
-      jq -e --arg id "$rid" '.ok == true and .result.issue.identifier == $id
+    if ! evidence_capture "linear.related.$rid" "$PACKET/linear/related/${rid}.json" true "$rid" "$ORCA_BIN" linear issue "$rid" --full --json; then
+      blocked "関連 Issue ${rid} の状態を取得できないため、判定を有効化しない。診断: ${PACKET}/linear/related/${rid}.json.err"
+    fi
+    if ! jq -e --arg id "$rid" '.ok == true and .result.issue.identifier == $id
         and (.result.issue.title | type == "string") and (.result.issue.state.name | type == "string")
         and (.result.comments | type == "array") and (.result.children | type == "array")
-        and (.result.relations | type == "array") and (.result.attachments | type == "array")' "$PACKET/linear/related/${rid}.json" >/dev/null 2>&1 \
-        || evidence_invalid "linear.related.$rid" "$PACKET/linear/related/${rid}.json" true "$rid" "malformed related Issue response"
+        and (.result.relations | type == "array") and (.result.attachments | type == "array")' "$PACKET/linear/related/${rid}.json" >/dev/null 2>&1; then
+      evidence_invalid "linear.related.$rid" "$PACKET/linear/related/${rid}.json" true "$rid" "malformed related Issue response"
+      blocked "関連 Issue ${rid} の応答が不正。診断: ${PACKET}/linear/related/${rid}.json"
     fi
   done <<< "$REL_IDS"
 
