@@ -216,13 +216,22 @@ done < "$verdict_file"
 note "機械の門: 全部通った"
 
 # ── 3. 事実シートを書く（モデルはこれだけを読む）─────────────────────
-draft_delegated_checks_line=""
+# Draft 中の skipping は、事実シートの専用の節に check 名だけをコードフェンスの中で並べる
+# （PR 作者が job 名を決められるので、判定段への注入面を本文の外に出さない）。
+# 「Draft だから skipped になった」という因果は script では確かめていない。並べるのは
+# Draft 中に状態列が skipping と完全一致した check で、merge の関門へ委ねる扱いにするだけ。
+# merge の関門の正本: concafe-techo 03ac5fc86c45e646c487c291cfbd5dfdf661b9f0
+# .github/workflows/auto-merge.yml:161-176（CAF-306-FULL-CI-GATE、現在 head の最新 run が
+# completed / success / CI / full であることを merge の前に要求する）。
+draft_skipping_section=""
 if [ "$is_draft" = "true" ]; then
-  draft_skipping_checks="$(awk -F '\t' '$2 == "skipping" {
-    printf "%s%s", separator, $1; separator = ", "
-  }' <<<"$checks")"
+  draft_skipping_checks="$(awk -F '\t' '$2 == "skipping" { print $1 }' <<<"$checks")"
   if [ -n "$draft_skipping_checks" ]; then
-    draft_delegated_checks_line="Draft のため merge の関門へ委ねた check（skipping）: ${draft_skipping_checks}"
+    draft_skipping_section="## Draft 中の skipping（merge の関門 FULL-CI-GATE へ委ねる扱い）
+\`\`\`
+${draft_skipping_checks}
+\`\`\`
+"
   fi
 fi
 
@@ -241,8 +250,8 @@ mergeState    : ${merge_state}
 \`\`\`
 ${checks}
 \`\`\`
-${draft_delegated_checks_line}
 
+${draft_skipping_section}
 ## この head に既に付いている commit status
 \`\`\`
 $(jq -r '.[] | "\(.context)\t\(.state)"' <<<"$statuses" | sort -u)
@@ -265,6 +274,8 @@ fi
 
 # ── 4. 判定の段（read-only・ネットワーク遮断のモデル）────────────────
 note "判定の段を回す（read-only・ネットワーク遮断）"
+# 門5の2文目（判定本文の Low が未実行と書いていても check の状態で判定する）は Draft に限らない。
+# Ready でも check の状態で判定するのが正しく、締める方向の文言（T4 2026-10-08 の門5改修）。
 prompt="$(cat <<'PROMPT'
 あなたは review:passed を中継するかどうかだけを判定する。実装も修正も指摘対応もしない。
 
@@ -288,7 +299,7 @@ prompt="$(cat <<'PROMPT'
      (b) その者が解消の事実を自分で確かめ、確かめた方法と結果を記録に書いていること。
    「確かめられなかった」「他者の観測によれば」は未解消として扱う。
 5. 事実シートの check に失敗や未完了が無いこと。
-   Draft で merge の関門（Ready 後の CI / full）へ委ねた skipped は未完了に数えない。fail / pending / cancelled は従来どおり拒む。
+   事実シートの「Draft 中の skipping（merge の関門 FULL-CI-GATE へ委ねる扱い）」節に挙がった check は未完了に数えない。fail / pending / cancelled は従来どおり拒む。
    判定本文の Low が未実行と書いていても、check の状態で判定する。
 
 出力は **1行だけ**。前後に何も書くな。
