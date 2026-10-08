@@ -27,7 +27,8 @@ Options:
   --run <owner/repo:RUN_ID>  受入条件が参照する GitHub Actions の run を一次データとして
                            パケットに入れる（複数可）。github/runs/ に run・job・ログを保存する
   --test-check <NAME>       テストを実行する CI チェック名を明示（複数可、完全一致）
-  --draft-light-ci          Draft PR の軽い CI でレビューする（持ち主判断 2026-10-05）。Draft のときだけ、
+  --draft-light-ci          risk:high / risk:low とも Draft の軽い CI でレビューする（T4 2026-10-08）。
+                           Draft でいずれかの risk ラベルが完全一致で在るときだけ、
                            skipped の必須チェックを merge の関門（CI / full）へ委ねたものとして記録し、
                            走ったチェックがすべて success なら CI: PASS とする。fail / pending は読み替えない
                            一般名の CI/full 等のテスト根拠を操作者が指定するときに使う

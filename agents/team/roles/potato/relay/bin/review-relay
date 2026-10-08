@@ -120,21 +120,20 @@ record_body="$(jq -r '.body' <<<"$comment")"
 # ── 2. 機械で確かめられる門（fail-closed。欠けたらモデルを呼ばない）──
 note "機械で確かめる門を通す"
 
-grep -qE 'risk:(high|low)' <<<"$labels" \
+grep -qE '(^|,)risk:(high|low)(,|$)' <<<"$labels" \
   || die "risk の分類ラベルが無い（risk:high / risk:low のどちらも）。
        **ラベルの不在を低リスクの証拠にしない**(CAF-283 と同じ fail-closed)"
 
-# Draft の中継は risk:high だけ許す（持ち主の判定、2026-10-05）。
-# B（CAF-308）が入ると risk:high は「Draft でレビュー → review:passed → Ready」が
-# 正規の順になるため、この門の前提（まだ出していないものに緑を付けない）が当たらない。
-# risk:low は従来どおり拒む。安全側は B が保つ——status だけでは Ready にならず、
-# merge は Ready 後の CI / full 全成功を要求する。
+# Draft の中継は risk:high / risk:low とも許す（持ち主の委任による Fable の判定 T4、2026-10-08。
+# それ以前は risk:high だけ：持ち主の判定 2026-10-05）。
+# Draft → Ready で head は動かず、review:passed は full SHA に束縛されたまま生きる。
+# risk:low だけ「Ready の後に中継」にすると、他の PR の merge で update-branch が先に
+# head を変え、中継が毎回間に合わない（2026-10-08 に再レビューが2回増えた）。
+# 安全側は変えない: status だけでは Ready にならず、merge は Ready 後の CI / full 全成功
+# （FULL-CI-GATE）を要求する。risk ラベルの無い PR は上の門で止まる。
 if [ "$is_draft" != "false" ]; then
-  grep -qE 'risk:high' <<<"$labels" \
-    || die "PR が Draft。**risk:high 以外の Draft は中継しない**
-       risk:high だけは B（Ready の前に review:passed を要求）のため Draft での中継を許す。
-       この PR のラベル: ${labels}"
-  note "Draft だが risk:high なので中継の対象（持ち主の判定 2026-10-05）"
+  # risk ラベルが無ければ上の門で止まるので、ここは多重防御ではなく通知だけ。
+  note "Draft だが risk の分類があるので中継の対象（T4 2026-10-08、risk:high / risk:low とも）"
 fi
 
 if [ "$correct_target_url" = 1 ]; then

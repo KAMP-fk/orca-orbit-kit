@@ -44,6 +44,31 @@ class EvidenceCase(unittest.TestCase):
         if not model_expected:
             self.assertFalse(any(c[0] in ('codex', 'claude') for c in self.calls()))
 
+    def test_draft_light_ci_requires_an_exact_risk_label(self):
+        import importlib.util
+        path = Path(__file__).resolve().parents[1] / 'agents/team/roles/potato/acceptance/lib/evidence.py'
+        spec = importlib.util.spec_from_file_location('draft_evidence', path)
+        evidence = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(evidence)
+        checks = [{'name': 'light', 'bucket': 'pass', 'state': 'success'},
+                  {'name': 'heavy', 'bucket': 'unknown', 'state': 'skipped'}]
+        paths = [self.root / (name + '.json') for name in ('checks', 'required', 'policy', 'jobs', 'pr')]
+        for path, value in zip(paths, (checks, checks, {'testChecks': [], 'draftLightCi': True}, [], {})):
+            path.write_text(json.dumps(value))
+        for label in ('risk:high', 'risk:low', None, 'xrisk:high', 'risk:lowish'):
+            with self.subTest(label=label):
+                paths[-1].write_text(json.dumps({'isDraft': True, 'labels': [{'name': label}] if label else []}))
+                if label in ('risk:high', 'risk:low'):
+                    facts = evidence.verification(*paths)
+                    self.assertEqual(facts['CI'], 'PASS')
+                    self.assertEqual(facts['deferredToMergeGate'], [checks[1]])
+                else:
+                    with self.assertRaisesRegex(ValueError, 'risk:high / risk:low'):
+                        evidence.verification(*paths)
+        paths[-1].write_text(json.dumps({'isDraft': False, 'labels': [{'name': 'risk:low'}]}))
+        with self.assertRaisesRegex(ValueError, 'only to a Draft PR'):
+            evidence.verification(*paths)
+
     def test_manifest_tracks_scope_timestamps_and_commands(self):
         p = self.packet(self.review('--packet-only'))
         facts = json.loads((p / 'evidence.json').read_text())
