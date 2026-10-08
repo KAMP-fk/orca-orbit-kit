@@ -197,10 +197,9 @@ class RelayCase(unittest.TestCase):
         self.assertEqual(len(self.posts()), 1)
         self.assertNotIn('- posted', self.audit())
 
-    def test_all_seven_mechanical_gates_still_stop_before_model(self):
+    def test_all_six_mechanical_gates_still_stop_before_model(self):
         cases = [
             ('unreadable', {}, None, 'レビュー記録の本文を取れない'),
-            ('draft', {'draft': True}, SHA, 'PR が Draft'),
             ('risk', {'labels': []}, SHA, 'risk の分類ラベルが無い'),
             ('duplicate', {'statuses': [{'context': 'review:passed', 'state': 'success'}]},
              SHA, '既に review:passed'),
@@ -222,6 +221,24 @@ class RelayCase(unittest.TestCase):
                 self.assertEqual(self.posts(), [])
                 self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
                 self.assertEqual(self.audit(), '')
+
+    def test_draft_with_either_risk_label_passes_the_mechanical_gates(self):
+        # T4 2026-10-08: a Draft is relayed for risk:low as well as risk:high.
+        for label in ('risk:low', 'risk:high'):
+            with self.subTest(label=label):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.config = {'draft': True, 'labels': [label]}
+                result = self.run_relay()
+                self.assertNotIn('PR が Draft', result.stderr)
+                self.assertTrue(any(c[0] == 'codex' for c in self.calls()), result.stdout + result.stderr)
+
+    def test_draft_without_risk_label_is_still_refused(self):
+        self.config = {'draft': True, 'labels': []}
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('risk の分類ラベルが無い', result.stderr)
+        self.assertEqual(self.posts(), [])
+        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
 
     def test_verdict_is_required_before_model_or_service_calls(self):
         (self.root / 'config.json').write_text('{}')
