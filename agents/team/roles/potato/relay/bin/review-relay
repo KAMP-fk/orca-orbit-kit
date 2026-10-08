@@ -170,6 +170,16 @@ elif jq -e --arg c review:passed \
 fi
 
 if [ -n "$checks" ]; then
+  # check 名は PR 作者が job 名で決められる。改行・バッククォート・# 始まりがあると、
+  # 事実シートのコードフェンスを抜けて節を偽装できるので、判定段へ渡す前に拒む。
+  # 改行入りの名前は、タブを含まない行（名前の前半）として現れる。
+  # 名前そのものは表示しない（偽装の文言を端末と log に流さない）。行番号だけ出す。
+  forged_lines="$(awk -F '\t' 'NF < 2 || $1 == "" || $1 ~ /`/ || $1 ~ /^#/ || $1 ~ /\r/ {
+    printf "%s%d", sep, NR; sep = ", " }' <<<"$checks")"
+  if [ -n "$forged_lines" ]; then
+    die "check 名に改行・バッククォート・# 始まりのものがある（gh pr checks の出力の ${forged_lines} 行目）。
+       **事実シートを偽装できる名前で中継しない**"
+  fi
   if grep -qiE '	(fail|failing|error|cancel)' <<<"$checks"; then
     die "失敗している check がある。**緑でないものを中継しない**"
   fi
@@ -220,14 +230,16 @@ note "機械の門: 全部通った"
 # （PR 作者が job 名を決められるので、判定段への注入面を本文の外に出さない）。
 # 「Draft だから skipped になった」という因果は script では確かめていない。並べるのは
 # Draft 中に状態列が skipping と完全一致した check で、merge の関門へ委ねる扱いにするだけ。
-# merge の関門の正本: concafe-techo 03ac5fc86c45e646c487c291cfbd5dfdf661b9f0
-# .github/workflows/auto-merge.yml:161-176（CAF-306-FULL-CI-GATE、現在 head の最新 run が
-# completed / success / CI / full であることを merge の前に要求する）。
+# 関門の名指しはしない。FULL-CI-GATE（concafe-techo 03ac5fc86c45e646c487c291cfbd5dfdf661b9f0
+# .github/workflows/auto-merge.yml:161-176）が見るのは ci.yml の最新 run だけで、別 workflow
+# （drill / bundle-budget / lighthouse）や Actions 外（Supabase Preview）の check は Ready 後に
+# 必ず関門にかかるとは言えない。それらの担保は relay の門ではなく Issue の Done 条件で持つ
+# （窓口 Tomato の決定 2026-10-08。#321 の「Ready 後の drill 成功を Done 条件」が型）。
 draft_skipping_section=""
 if [ "$is_draft" = "true" ]; then
   draft_skipping_checks="$(awk -F '\t' '$2 == "skipping" { print $1 }' <<<"$checks")"
   if [ -n "$draft_skipping_checks" ]; then
-    draft_skipping_section="## Draft 中の skipping（merge の関門 FULL-CI-GATE へ委ねる扱い）
+    draft_skipping_section="## Draft 中の skipping（merge の関門へ委ねる扱い）
 \`\`\`
 ${draft_skipping_checks}
 \`\`\`
@@ -299,7 +311,7 @@ prompt="$(cat <<'PROMPT'
      (b) その者が解消の事実を自分で確かめ、確かめた方法と結果を記録に書いていること。
    「確かめられなかった」「他者の観測によれば」は未解消として扱う。
 5. 事実シートの check に失敗や未完了が無いこと。
-   事実シートの「Draft 中の skipping（merge の関門 FULL-CI-GATE へ委ねる扱い）」節に挙がった check は未完了に数えない。fail / pending / cancelled は従来どおり拒む。
+   事実シートの「Draft 中の skipping（merge の関門へ委ねる扱い）」節に挙がった check は未完了に数えない。fail / pending / cancelled は従来どおり拒む。
    判定本文の Low が未実行と書いていても、check の状態で判定する。
 
 出力は **1行だけ**。前後に何も書くな。
