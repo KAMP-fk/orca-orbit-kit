@@ -55,6 +55,7 @@ review-relay <PR番号> <この PR の issue コメント URL> --verdict <判定
 |---|---|
 | **レビュー記録の本文が読めること** | **読めないものを中継しない** |
 | **記録 URL と API 応答の URL・PR 帰属・id・本文型が一致すること** | **別 PR のコメントや検証器が受け取れない URL を中継しない** |
+| **`isDraft` が真偽値（true / false）であること** | **null や不正な値を Draft と読み替えない**（取れない状態は止める） |
 | **Draft は `risk:high` / `risk:low` のどちらかが在ること** | **T4 2026-10-08。ラベルが無ければ risk の門で止まる** |
 | **`risk:high` / `risk:low` のどちらかが付いていること** | **ラベルの不在を低リスクの証拠にしない**（CAF-283 と同じ fail-closed） |
 | **その head に `review:passed` success が未だ無いこと**（例外: `--correct-target-url` で最新 success の誤った URL を訂正する場合だけ、同じ head に1回） | **二重に出さない。履歴にこの PR の正しい形のコメント URL を指す success があれば訂正も拒否する** |
