@@ -197,7 +197,7 @@ class RelayCase(unittest.TestCase):
         self.assertEqual(len(self.posts()), 1)
         self.assertNotIn('- posted', self.audit())
 
-    def test_all_six_mechanical_gates_still_stop_before_model(self):
+    def test_listed_mechanical_gates_still_stop_before_model_in_both_draft_states(self):
         cases = [
             ('unreadable', {}, None, 'レビュー記録の本文を取れない'),
             ('risk', {'labels': []}, SHA, 'risk の分類ラベルが無い'),
