@@ -216,6 +216,16 @@ done < "$verdict_file"
 note "機械の門: 全部通った"
 
 # ── 3. 事実シートを書く（モデルはこれだけを読む）─────────────────────
+draft_delegated_checks_line=""
+if [ "$is_draft" = "true" ]; then
+  draft_skipping_checks="$(awk -F '\t' '$2 == "skipping" {
+    printf "%s%s", separator, $1; separator = ", "
+  }' <<<"$checks")"
+  if [ -n "$draft_skipping_checks" ]; then
+    draft_delegated_checks_line="Draft のため merge の関門へ委ねた check（skipping）: ${draft_skipping_checks}"
+  fi
+fi
+
 cat > "$facts" <<FACTS
 # 中継の判定に使う事実（これ以外は見ない）
 
@@ -231,6 +241,7 @@ mergeState    : ${merge_state}
 \`\`\`
 ${checks}
 \`\`\`
+${draft_delegated_checks_line}
 
 ## この head に既に付いている commit status
 \`\`\`
@@ -277,6 +288,8 @@ prompt="$(cat <<'PROMPT'
      (b) その者が解消の事実を自分で確かめ、確かめた方法と結果を記録に書いていること。
    「確かめられなかった」「他者の観測によれば」は未解消として扱う。
 5. 事実シートの check に失敗や未完了が無いこと。
+   Draft で merge の関門（Ready 後の CI / full）へ委ねた skipped は未完了に数えない。fail / pending / cancelled は従来どおり拒む。
+   判定本文の Low が未実行と書いていても、check の状態で判定する。
 
 出力は **1行だけ**。前後に何も書くな。
 

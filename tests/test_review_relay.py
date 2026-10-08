@@ -233,6 +233,70 @@ class RelayCase(unittest.TestCase):
                 self.assertNotIn('PR が Draft', result.stderr)
                 self.assertTrue(any(c[0] == 'codex' for c in self.calls()), result.stdout + result.stderr)
 
+    def test_draft_skipping_checks_are_delegated_and_can_post(self):
+        self.config = {
+            'draft': True,
+            'checks': ('validate\tpass\tfixture-url\n'
+                       'Supabase Preview\tskipping\tfixture-url\n'
+                       'bundle-budget\tskipping\tfixture-url\n'
+                       'drill\tskipping\tfixture-url'),
+        }
+        low = 'Low 2: drill が skipped なので未実行。行き先: CAF-999\n'
+        self.verdict.write_text(self.verdict.read_text() + low)
+        self.record.write_text(self.verdict.read_text() + self.identities)
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = next(c[-1] for c in self.calls() if c[0] == 'codex')
+        lines = [line for line in prompt.splitlines()
+                 if line.startswith('Draft のため merge の関門へ委ねた check（skipping）:')]
+        self.assertEqual(lines, [
+            'Draft のため merge の関門へ委ねた check（skipping）: Supabase Preview, bundle-budget, drill',
+        ])
+        self.assertIn(low.strip(), prompt)
+        self.assertEqual(len(self.posts()), 1)
+
+    def test_draft_cancelled_check_stops_before_model(self):
+        self.config = {'draft': True, 'checks': (
+            'drill\tskipping\tfixture-url\nvalidate\tcancelled\tfixture-url')}
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('失敗している check', result.stderr)
+        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+        self.assertEqual(self.posts(), [])
+        self.assertEqual(self.audit(), '')
+
+    def test_ready_skipping_checks_have_no_delegation_line(self):
+        self.config = {'draft': False, 'checks': 'drill\tskipping\tfixture-url',
+                       'verdict': 'RELAY: REFUSE — 5. fixture Ready skipping'}
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        prompt = next(c[-1] for c in self.calls() if c[0] == 'codex')
+        self.assertNotIn('Draft のため merge の関門へ委ねた check（skipping）:', prompt)
+        self.assertIn('drill\tskipping\tfixture-url', prompt)
+        self.assertEqual(self.posts(), [])
+
+    def test_draft_delegation_uses_only_exact_skipping_state(self):
+        self.config = {'draft': True, 'checks': (
+            'drill\tskipping\tfixture-url\n'
+            'skipping in name\tpass\tfixture-url\n'
+            'other\tskipped\tfixture-url\n'
+            'partial\tskipping-extra\tfixture-url')}
+        result = self.run_relay('--dry-run')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = next(c[-1] for c in self.calls() if c[0] == 'codex')
+        lines = [line for line in prompt.splitlines()
+                 if line.startswith('Draft のため merge の関門へ委ねた check（skipping）:')]
+        self.assertEqual(lines, ['Draft のため merge の関門へ委ねた check（skipping）: drill'])
+
+    def test_gate_five_prompt_defers_draft_skipping_and_uses_check_state(self):
+        result = self.run_relay('--dry-run')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = next(c[-1] for c in self.calls() if c[0] == 'codex')
+        gate_five = prompt.split('5. 事実シートの check に失敗や未完了が無いこと。', 1)[1]
+        self.assertIn('Draft で merge の関門（Ready 後の CI / full）へ委ねた skipped は未完了に数えない。'
+                      'fail / pending / cancelled は従来どおり拒む。', gate_five)
+        self.assertIn('判定本文の Low が未実行と書いていても、check の状態で判定する。', gate_five)
+
     def test_partial_risk_labels_stop_before_model(self):
         for draft in (False, True):
             for labels in (['xrisk:high'], ['risk:lowish'], ['risk:highish'],
