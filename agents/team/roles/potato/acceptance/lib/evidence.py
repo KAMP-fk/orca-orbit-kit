@@ -189,18 +189,23 @@ def verification(checks_path, required_path, policy_path, jobs_path, pr_path=Non
     deferred = []
     draft_light = policy.get('draftLightCi') is True
     if draft_light:
-        # Owner decision 2026-10-05: risk:high is reviewed in Draft on the light CI, and the
+        # T4 2026-10-08: risk:high / risk:low are reviewed in Draft on the light CI; the
         # heavy jobs are guarded by the merge gate (CI / full completed/success). Only a
         # genuinely skipped required check is deferred; fail / pending / unknown never are.
         require(pr_path is not None, 'draft light CI requires the PR snapshot')
-        require(read(pr_path).get('isDraft') is True, 'draft light CI applies only to a Draft PR')
+        pr = read(pr_path)
+        require(pr.get('isDraft') is True, 'draft light CI applies only to a Draft PR')
+        labels = pr.get('labels')
+        require(isinstance(labels, list) and any(
+            isinstance(label, dict) and label.get('name') in ('risk:high', 'risk:low')
+            for label in labels), 'draft light CI requires an exact risk:high / risk:low label')
         ran = [c for c in selected if c.get('state') != 'skipped']
         deferred = [c for c in selected if c.get('state') == 'skipped']
         if ci == 'UNKNOWN' and ran and deferred and all(c['bucket'] == 'pass' for c in ran):
             ci = 'PASS'
     return {'CI': ci, 'Tests': aggregate(tests), 'requiredChecks': selected,
             'draftLightCi': draft_light, 'deferredToMergeGate': deferred,
-            'deferredPolicy': 'Draft only. Skipped required checks are not evidence; they are left to the CI / full merge gate.',
+            'deferredPolicy': 'Draft with an exact risk:high / risk:low label only. Skipped required checks are not evidence; they are left to the CI / full merge gate.',
             'testChecks': tests, 'explicitTestChecks': mapped,
             'workflowJobs': jobs,
             'testEvidencePolicy': 'pinned head/run/attempt and current check-run job ID; named completed/success workflow jobs only',

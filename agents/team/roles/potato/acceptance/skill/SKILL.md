@@ -146,8 +146,8 @@ optional skip は必須 CI の失敗とは扱わず、必須 skip / pending / �
 一般名の CI でテストを実行する場合は操作者の `--test-check` mapping が必要。
 mapping は実行結果の対象を指定するだけで、テスト内容や受入条件の充足を保証しない。
 review / verdict 系の必須ゲートはレビュー後の条件になり得るが、未達を CI: PASS へ読み替えない。
-**例外（持ち主判断 2026-10-05、`risk:high` は Draft でレビューしてから Ready にする）**:
-起動側が `--draft-light-ci` を付け、PR が Draft の場合に限り、`verification.json` は
+**例外（T4 2026-10-08、`risk:high` / `risk:low` とも Draft でレビューしてから Ready にする）**:
+起動側が `--draft-light-ci` を付け、PR が Draft で `risk:high` / `risk:low` のいずれかのラベルが完全一致で在る場合に限り、`verification.json` は
 skipped の必須チェックを `deferredToMergeGate` として分け、走ったチェックがすべて success なら CI: PASS とする。
 skipped は成功の証拠ではない。重い job（db / data / cloudflare / e2e）の結果は merge の関門（`CI / full` の completed/success）が担保する。
 このとき Summary に「重い job の結果は見ていない（merge の関門に委ねた）」と明記する。fail / pending / unknown は読み替えない。

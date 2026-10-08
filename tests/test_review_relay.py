@@ -207,30 +207,45 @@ class RelayCase(unittest.TestCase):
             ('pending', {'checks': 'validate\tpending\tfixture-url'}, SHA, 'pending の check'),
             ('sha', {}, SHA[:12], 'full SHA が逐語で無い'),
         ]
-        for name, config, record_sha, reason in cases:
-            with self.subTest(gate=name):
-                (self.root / 'calls.jsonl').unlink(missing_ok=True)
-                self.config = config
-                if record_sha is None:
-                    self.record.unlink()
-                else:
-                    self.record.write_text('Verdict: PASS\nhead SHA: ' + record_sha + '\n')
-                result = self.run_relay()
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn(reason, result.stderr)
-                self.assertEqual(self.posts(), [])
-                self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
-                self.assertEqual(self.audit(), '')
+        for draft in (False, True):
+            for name, config, record_sha, reason in cases:
+                with self.subTest(gate=name, draft=draft):
+                    (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                    self.config = dict(config, draft=draft)
+                    if record_sha is None:
+                        self.record.unlink()
+                    else:
+                        self.record.write_text('Verdict: PASS\nhead SHA: ' + record_sha + '\n')
+                    result = self.run_relay()
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn(reason, result.stderr)
+                    self.assertEqual(self.posts(), [])
+                    self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+                    self.assertEqual(self.audit(), '')
 
     def test_draft_with_either_risk_label_passes_the_mechanical_gates(self):
         # T4 2026-10-08: a Draft is relayed for risk:low as well as risk:high.
         for label in ('risk:low', 'risk:high'):
             with self.subTest(label=label):
                 (self.root / 'calls.jsonl').unlink(missing_ok=True)
-                self.config = {'draft': True, 'labels': [label]}
+                self.config = {'draft': True, 'labels': ['review:required', label, 'other']}
                 result = self.run_relay()
                 self.assertNotIn('PR が Draft', result.stderr)
                 self.assertTrue(any(c[0] == 'codex' for c in self.calls()), result.stdout + result.stderr)
+
+    def test_partial_risk_labels_stop_before_model(self):
+        for draft in (False, True):
+            for labels in (['xrisk:high'], ['risk:lowish'], ['risk:highish'],
+                           ['xrisk:low'], ['other', 'risk:lowish', 'review:required']):
+                with self.subTest(draft=draft, labels=labels):
+                    (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                    self.config = {'draft': draft, 'labels': labels}
+                    result = self.run_relay()
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn('risk の分類ラベルが無い', result.stderr)
+                    self.assertEqual(self.posts(), [])
+                    self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+                    self.assertEqual(self.audit(), '')
 
     def test_draft_without_risk_label_is_still_refused(self):
         self.config = {'draft': True, 'labels': []}
