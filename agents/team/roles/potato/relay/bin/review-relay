@@ -120,7 +120,11 @@ record_body="$(jq -r '.body' <<<"$comment")"
 # ── 2. 機械で確かめられる門（fail-closed。欠けたらモデルを呼ばない）──
 note "機械で確かめる門を通す"
 
-grep -qE '(^|,)risk:(high|low)(,|$)' <<<"$labels" \
+jq -e '.isDraft | type == "boolean"' <<<"$pr_json" >/dev/null 2>&1 \
+  || die "isDraft が boolean でない（true / false 以外）。Draft の状態を確認できない"
+
+jq -e 'any(.labels[]; .name == "risk:high" or .name == "risk:low")' \
+    <<<"$pr_json" >/dev/null 2>&1 \
   || die "risk の分類ラベルが無い（risk:high / risk:low のどちらも）。
        **ラベルの不在を低リスクの証拠にしない**(CAF-283 と同じ fail-closed)"
 
@@ -131,7 +135,7 @@ grep -qE '(^|,)risk:(high|low)(,|$)' <<<"$labels" \
 # head を変え、中継が毎回間に合わない（2026-10-08 に再レビューが2回増えた）。
 # 安全側は変えない: status だけでは Ready にならず、merge は Ready 後の CI / full 全成功
 # （FULL-CI-GATE）を要求する。risk ラベルの無い PR は上の門で止まる。
-if [ "$is_draft" != "false" ]; then
+if [ "$is_draft" = "true" ]; then
   # risk ラベルが無ければ上の門で止まるので、ここは多重防御ではなく通知だけ。
   note "Draft だが risk の分類があるので中継の対象（T4 2026-10-08、risk:high / risk:low とも）"
 fi

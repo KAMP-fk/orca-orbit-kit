@@ -247,6 +247,24 @@ class RelayCase(unittest.TestCase):
                     self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
                     self.assertEqual(self.audit(), '')
 
+    def test_invalid_draft_value_stops_before_model(self):
+        for draft in (None, 'true', 'false', 'invalid', 0, 1, [], {}):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.config = {'draft': draft}
+                result = self.run_relay()
+                self.assert_correction_rejected(result, 'isDraft が boolean でない')
+
+    def test_comma_containing_risk_labels_stop_before_model(self):
+        for draft in (False, True):
+            for labels in (['a,risk:low'], ['risk:high,b'], ['a,risk:high,b'],
+                           ['other', 'a,risk:low', 'review:required']):
+                with self.subTest(draft=draft, labels=labels):
+                    (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                    self.config = {'draft': draft, 'labels': labels}
+                    result = self.run_relay()
+                    self.assert_correction_rejected(result, 'risk の分類ラベルが無い')
+
     def test_draft_without_risk_label_is_still_refused(self):
         self.config = {'draft': True, 'labels': []}
         result = self.run_relay()
@@ -265,12 +283,16 @@ class RelayCase(unittest.TestCase):
 
     def test_summarized_record_cannot_drop_qualifications_from_verdict(self):
         self.verdict.write_text(self.verdict.read_text() + 'Unresolved Medium: fixture qualification\n')
-        result = self.run_relay()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn('判定の逐語を含んでいない', result.stderr)
-        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
-        self.assertEqual(self.posts(), [])
-        self.assertEqual(self.audit(), '')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.config['draft'] = draft
+                result = self.run_relay()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn('判定の逐語を含んでいない', result.stderr)
+                self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+                self.assertEqual(self.posts(), [])
+                self.assertEqual(self.audit(), '')
 
     def test_native_ps_is_best_effort_with_isolated_post(self):
         self.config['native_ps'] = True
@@ -282,17 +304,21 @@ class RelayCase(unittest.TestCase):
         self.assertIn('- posted : review:passed success', audit)
 
     def test_missing_identity_line_blocks_before_model_and_status_post(self):
-        lines = self.identities.splitlines(keepends=True)
-        for missing in lines:
-            with self.subTest(missing=missing):
+        for draft in (False, True):
+            with self.subTest(draft=draft):
                 (self.root / 'calls.jsonl').unlink(missing_ok=True)
-                self.record.write_text(self.verdict.read_text() + ''.join(line for line in lines if line != missing))
-                result = self.run_relay()
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn('CAF-308 の行が無い', result.stderr)
-                self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
-                self.assertEqual(self.posts(), [])
-                self.assertEqual(self.audit(), '')
+                self.config['draft'] = draft
+                lines = self.identities.splitlines(keepends=True)
+                for missing in lines:
+                    with self.subTest(missing=missing):
+                        (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                        self.record.write_text(self.verdict.read_text() + ''.join(line for line in lines if line != missing))
+                        result = self.run_relay()
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertIn('CAF-308 の行が無い', result.stderr)
+                        self.assertFalse(any(c[0] == 'codex' for c in self.calls()))
+                        self.assertEqual(self.posts(), [])
+                        self.assertEqual(self.audit(), '')
 
     def status(self, target_url=PR_URL, *, status_id=1,
                created_at='2026-10-07T11:00:00Z', state='success'):
@@ -381,18 +407,26 @@ class RelayCase(unittest.TestCase):
         self.assert_correction_rejected(self.run_relay(record=COMMENT_URL), '二重に出さない')
 
     def test_correct_success_url_rejects_even_with_correction_flag(self):
-        self.correction_fixture([self.status(COMMENT_URL)])
-        self.assert_correction_rejected(
-            self.run_relay('--correct-target-url', record=COMMENT_URL), '二重に出さない')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture([self.status(COMMENT_URL)])
+                self.config['draft'] = draft
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url', record=COMMENT_URL), '二重に出さない')
 
     def test_correction_requires_this_pr_comment_url(self):
-        self.correction_fixture()
-        for url in ('https://github.com/fixture/repo/pull/998#issuecomment-123',
-                    'https://github.com/other/repo/pull/999#issuecomment-123',
-                    PR_URL, COMMENT_URL + '/extra', PR_URL + '#issuecomment-0', str(self.record)):
-            with self.subTest(url=url):
-                self.assert_correction_rejected(
-                    self.run_relay('--correct-target-url', record=url), 'この PR の issue コメント URL')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture()
+                self.config['draft'] = draft
+                for url in ('https://github.com/fixture/repo/pull/998#issuecomment-123',
+                            'https://github.com/other/repo/pull/999#issuecomment-123',
+                            PR_URL, COMMENT_URL + '/extra', PR_URL + '#issuecomment-0', str(self.record)):
+                    with self.subTest(url=url):
+                        self.assert_correction_rejected(
+                            self.run_relay('--correct-target-url', record=url), 'この PR の issue コメント URL')
 
     def test_second_correction_rejects_after_first_post_on_same_head(self):
         self.correction_fixture()
@@ -431,75 +465,103 @@ class RelayCase(unittest.TestCase):
         self.assertIn(latest_url + ' → ' + COMMENT_URL, self.audit())
 
     def test_correction_same_timestamp_newest_failure_first_blocks_stale_success(self):
-        self.correction_fixture([
-            self.status(state='failure', status_id=2), self.status(status_id=1),
-        ])
-        self.assert_correction_rejected(
-            self.run_relay('--correct-target-url'), '最新の review:passed が success でない')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture([
+                    self.status(state='failure', status_id=2), self.status(status_id=1),
+                ])
+                self.config['draft'] = draft
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url'), '最新の review:passed が success でない')
 
     def test_correction_rejects_invalid_status_timestamp_or_id(self):
-        valid = self.status()
-        cases = [
-            ('missing-created-at', {k: v for k, v in valid.items() if k != 'created_at'}),
-            ('timezone-offset', {**valid, 'created_at': '2026-10-07T20:00:00+09:00'}),
-            ('missing-id', {k: v for k, v in valid.items() if k != 'id'}),
-            ('fractional-id', {**valid, 'id': 1.5}),
-            ('zero-id', {**valid, 'id': 0}),
-        ]
-        for name, status in cases:
-            with self.subTest(status=name):
+        for draft in (False, True):
+            with self.subTest(draft=draft):
                 (self.root / 'calls.jsonl').unlink(missing_ok=True)
-                self.correction_fixture([status])
-                self.assert_correction_rejected(
-                    self.run_relay('--correct-target-url'), '日時 / id が不正')
+                valid = self.status()
+                cases = [
+                    ('missing-created-at', {k: v for k, v in valid.items() if k != 'created_at'}),
+                    ('timezone-offset', {**valid, 'created_at': '2026-10-07T20:00:00+09:00'}),
+                    ('missing-id', {k: v for k, v in valid.items() if k != 'id'}),
+                    ('fractional-id', {**valid, 'id': 1.5}),
+                    ('zero-id', {**valid, 'id': 0}),
+                ]
+                for name, status in cases:
+                    with self.subTest(status=name):
+                        (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                        self.correction_fixture([status])
+                        self.config['draft'] = draft
+                        self.assert_correction_rejected(
+                            self.run_relay('--correct-target-url'), '日時 / id が不正')
 
     def test_correction_rejects_unreadable_status_pages(self):
-        cases = [
-            ('first-page-not-array', {'statuses': {'message': 'fixture error'}}),
-            ('later-page-not-array', {'status_pages': [{'message': 'fixture error'}]}),
-            ('gh-failed', {'statuses_rc': 1}),
-        ]
-        for name, config in cases:
-            with self.subTest(history=name):
+        for draft in (False, True):
+            with self.subTest(draft=draft):
                 (self.root / 'calls.jsonl').unlink(missing_ok=True)
-                self.correction_fixture()
-                self.config.update(config)
-                self.assert_correction_rejected(
-                    self.run_relay('--correct-target-url'), 'status 履歴を読めない')
-                self.assertTrue(any('--paginate' in c for c in self.calls()))
+                cases = [
+                    ('first-page-not-array', {'statuses': {'message': 'fixture error'}}),
+                    ('later-page-not-array', {'status_pages': [{'message': 'fixture error'}]}),
+                    ('gh-failed', {'statuses_rc': 1}),
+                ]
+                for name, config in cases:
+                    with self.subTest(history=name):
+                        (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                        self.correction_fixture()
+                        self.config['draft'] = draft
+                        self.config.update(config)
+                        self.assert_correction_rejected(
+                            self.run_relay('--correct-target-url'), 'status 履歴を読めない')
+                        self.assertTrue(any('--paginate' in c for c in self.calls()))
 
     def test_any_previous_correct_success_blocks_correction_including_later_pages(self):
-        self.correction_fixture()
-        self.config['status_pages'] = [[self.status(COMMENT_URL, created_at='2026-10-07T10:00:00Z')]]
-        self.assert_correction_rejected(
-            self.run_relay('--correct-target-url', record=COMMENT_URL), '二重に出さない')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture()
+                self.config['draft'] = draft
+                self.config['status_pages'] = [[self.status(COMMENT_URL, created_at='2026-10-07T10:00:00Z')]]
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url', record=COMMENT_URL), '二重に出さない')
 
     def test_correction_does_not_overwrite_newer_failure_error_or_pending(self):
-        for state in ('failure', 'error', 'pending'):
-            with self.subTest(state=state):
-                self.correction_fixture([self.status(), self.status(state=state, status_id=2)])
-                self.assert_correction_rejected(
-                    self.run_relay('--correct-target-url', record=COMMENT_URL), '最新の review:passed が success でない')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                for state in ('failure', 'error', 'pending'):
+                    with self.subTest(state=state):
+                        self.correction_fixture([self.status(), self.status(state=state, status_id=2)])
+                        self.config['draft'] = draft
+                        self.assert_correction_rejected(
+                            self.run_relay('--correct-target-url', record=COMMENT_URL), '最新の review:passed が success でない')
 
     def test_correction_requires_existing_success(self):
-        self.correction_fixture([])
-        self.assert_correction_rejected(
-            self.run_relay('--correct-target-url', record=COMMENT_URL), '訂正する success が無い')
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                self.correction_fixture([])
+                self.config['draft'] = draft
+                self.assert_correction_rejected(
+                    self.run_relay('--correct-target-url', record=COMMENT_URL), '訂正する success が無い')
 
     def test_correction_still_checks_sha_identity_verbatim_and_ci(self):
-        cases = [
-            ({'record_body': self.record.read_text().replace(SHA, SHA[:12])}, 'full SHA が逐語で無い'),
-            ({'record_body': self.verdict.read_text()}, 'CAF-308 の行が無い'),
-            ({'record_body': self.record.read_text().replace('Reviewer: uninvolved', '')}, '判定の逐語を含んでいない'),
-            ({'checks': 'validate\tfail\tfixture-url'}, '失敗している check'),
-            ({'checks': 'validate\tpending\tfixture-url'}, 'pending の check'),
-        ]
-        for config, reason in cases:
-            with self.subTest(reason=reason):
-                self.correction_fixture()
-                self.config.update(config)
-                self.assert_correction_rejected(
-                    self.run_relay('--correct-target-url', record=COMMENT_URL), reason)
+        for draft in (False, True):
+            with self.subTest(draft=draft):
+                (self.root / 'calls.jsonl').unlink(missing_ok=True)
+                cases = [
+                    ({'record_body': self.record.read_text().replace(SHA, SHA[:12])}, 'full SHA が逐語で無い'),
+                    ({'record_body': self.verdict.read_text()}, 'CAF-308 の行が無い'),
+                    ({'record_body': self.record.read_text().replace('Reviewer: uninvolved', '')}, '判定の逐語を含んでいない'),
+                    ({'checks': 'validate\tfail\tfixture-url'}, '失敗している check'),
+                    ({'checks': 'validate\tpending\tfixture-url'}, 'pending の check'),
+                ]
+                for config, reason in cases:
+                    with self.subTest(reason=reason):
+                        self.correction_fixture()
+                        self.config['draft'] = draft
+                        self.config.update(config)
+                        self.assert_correction_rejected(
+                            self.run_relay('--correct-target-url', record=COMMENT_URL), reason)
 
     def test_correction_model_refusal_is_logged_without_post(self):
         self.correction_fixture()
