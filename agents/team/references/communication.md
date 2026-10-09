@@ -40,24 +40,47 @@ SendMessage の承諾待ちを主経路にせず、受信箱の原文を主経�
 
 ## Potato の読み取り専用を保つ
 
+Potato の受付はモデル無しで、常時受信する対話セッションではない。
+`potato --inbox` はモデルを起動せず、手順と実際の未受領・未返答の ID を表示する。
+Banana は起動時・区切り・完了報告前に、自分宛とあわせて Potato の未処理分を確認する。
+レビューを伴わない運用・評価・規準への質問を、次のレビューまで待たせない。
+実際の依頼・委任と権限の範囲を確認した担当が、指定した1件だけを連絡専用入口へ渡す。
+
+```sh
+potato --inbox
+potato --kind communication --id <message-id> --dry-run
+potato --kind communication --id <message-id>
+```
+
+`communication` は Opus 5.5 / high と読み取りツールだけの既存経路で、指定 ID の元の JSON を読む。
+レビューの checkout、PR / Issue 探索、verdict、署名、`## 記録` はこの種別には要求しない。
+返答は `## 連絡` に、元の ID、宛先（**owner を含む元の送信者**）、受領した内容、
+返答または不足資料・保留理由、次の担当と行動を記す。結果は既存のタスク保存先の
+`result.txt` に残り、その path は実行時に表示される。モデル検証や回収が失敗したら中継しない。
+この入口は自動起動・自動送信を行わない。起動と返答原文の中継は別の操作である。
+
 Potato は受信箱や brain に書かず、読み取りツールで自分宛の JSON を読む。
 レビュー開始時に Banana が対象の連絡 ID と本文を固定依頼へ含める。実行中の新しい連絡が
 判定範囲を変えるなら結果へ明記し、変更後の正式な依頼に戻す。レビュー中の PR / Issue は書き換えない。
-技術確認では Potato は結果の末尾に `## 連絡` を付け、元の連絡 ID、宛先、返答・不足資料・次の担当を原文で返す。
+技術確認では Potato は結果の末尾に `## 連絡` を付け、元の連絡 ID、元の送信者への宛先、返答・不足資料・次の担当を原文で返す。
 受入 pipeline は既存の厳密な出力形式を維持し、返答・不足資料は Summary / Findings に書く。
 判断が必要な規準・評価への質問は Tomato 宛、技術的な質問・指摘は Banana 宛にする。
 
-Banana は結果を受け取った区切りで `## 記録`、または受入レポート全原文を既存の `review/記録/` へ逐語転記し、
+Banana はレビュー結果を受け取った区切りで `## 記録`、または受入レポート全原文を既存の `review/記録/` へ逐語転記し、
 `## 連絡` または受入レポート全原文を同じく逐語中継する。双方へ返す場合は宛先ごとに元の ID を指定する。
+連絡専用の結果は `## 連絡` を中継し、レビュー判定の記録には入れない。
 
 ```sh
 team-mail relay-potato --source-file /absolute/potato-result.md --to tomato --subject '規準への返答' --id <tomato-message-id>
 team-mail relay-potato --source-file /absolute/potato-result.md --to banana --subject 'レビューの返答' --id <banana-message-id>
+team-mail relay-potato --source-file /absolute/result.txt --to owner --subject '運用への返答' --id <owner-message-id>
 ```
 
 `relay-potato` は原文の `## 連絡`、受入 pipeline では全レポートを保存し、送信者 Potato、中継者 Banana、原文 path を残す。
 Potato 名義の自由な本文作成は拒否する。返答は受領の証拠にもなるが、PASS の投稿や中継とは別経路。
 この受信箱の記録を最終 verdict、Owner の承認、CI 成功として使わない。
+Potato 自身への `team-mail ack` は使わず、本人の返答原文が中継されたことを受領の証拠にする。
+連絡を受付に保存した、dry-run が通った、起動を始めたという事実だけでは受領済みにしない。
 
 ## 日報と日誌への集約
 

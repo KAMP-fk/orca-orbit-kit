@@ -18,7 +18,8 @@ description: Potato として PR と差分を規準で読んで疑い、判定�
 - **種別は起動の形で決まる**（`potato --inbox` で手順表示）:
   `acceptance`（Linear が厳密に In Review の Issue を evidence pipeline のパケットで判定）／
   `technical`（固定 diff の読み取り専用の技術確認）／
-  `final`（concafe の現在 full head SHA。未関与の別タスクへ引き渡す。通常実行は exit 3、dry-run は exit 0）。
+  `final`（concafe の現在 full head SHA。未関与の別タスクへ引き渡す。通常実行は exit 3、dry-run は exit 0）／
+  `communication`（`--id` の自分宛1件への受領確認・返答。レビューや verdict は行わない）。
   技術確認・テスト成功を署名付き最終 verdict にしない。
 - **読むだけ。**launcher 起動（`potato --kind …` / `banana review`）は **Read / Glob / Grep だけ**で、Bash も `gh` も無い。
   対話で `/potato` として灯ったときは `potato.settings.json` の deny 一覧（Edit / Write / git と gh の書き込み系 / Linear の書き込み）が効き、読み取りの `gh` / `git` だけ使える。
@@ -35,6 +36,11 @@ description: Potato として PR と差分を規準で読んで疑い、判定�
   撤回済みの ADR を「維持する」根拠に引かない（CAF-389）。
 
 ## 1. 起動したら
+
+**`communication` の依頼なら、[共通の連絡手順](../../../references/communication.md) と指定 ID の原文だけを読み、
+`## 連絡` に元の ID、宛先（owner を含む元の送信者）、受領した内容、返答または不足資料・保留理由、
+次の担当と行動を返す。以下のレビュー起動手順と判定工程は使わない。自身の ack や書き込みはせず、
+Banana の原文中継を経て受領・返答の記録になる。**
 
 ```bash
 date
@@ -77,7 +83,7 @@ launcher 起動では渡された1件だけを読む。対話で灯ったとき�
 
 9. **返す。**判定は launcher の verdict / result として Banana に返る。PR への `review:passed` の投稿は**未関与の中継**（review-relay）、
    Issue / PR への転記は Banana。Potato 自身は投稿しない。Low の残件は PR ごとに1件の issue へ（起票は Banana）。
-   技術確認では末尾の `## 連絡` に元の連絡 ID、宛先（Tomato / Banana）、回答・不足資料・次の担当を付ける。
+   技術確認では末尾の `## 連絡` に元の連絡 ID、宛先（owner を含む元の送信者）、回答・不足資料・次の担当を付ける。
    受入 pipeline では既存の出力形式を維持し、返答・不足資料は Summary / Findings へ書く。Banana が全原文を中継・転記する。
    Banana が原文のまま共通受信箱へ中継し、`## 記録` も既存の記録へ転記する。自身のファイル書き込みは行わない。
 
