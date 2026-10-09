@@ -7,6 +7,7 @@ Run separately in every source repository, including submodules.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -24,7 +25,8 @@ ALLOWED_SUBMODULES = {'apps/orbit', 'agents/team/roles/tomato/skill'}
 
 
 def git(root, *args):
-    return subprocess.check_output(['git', '-C', str(root), *args])
+    env = {name: value for name, value in os.environ.items() if not name.startswith('GIT_')}
+    return subprocess.check_output(['git', '-C', str(root), *args], env=env)
 
 
 def findings(data):
