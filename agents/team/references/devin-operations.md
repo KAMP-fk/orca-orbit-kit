@@ -1,7 +1,10 @@
-# Devin の外部 Issue adapter（既存経路）
+# Devin の外部 Issue adapter（利用しない既存機構）
 
-現在の開発窓口は Banana。ローカル CLI 組込とレビュー worktree は
-[Banana の開発手順](banana-engineering.md)。以下は別の外部 Issue / Cloud adapter の契約。
+2026-10-07 JST の Owner 指示により、Orca で Devin は利用しない。
+以下は保全した外部 Issue / Cloud adapter の仕様と旧導入手順で、接続・起動・再開・再試行の指示ではない。
+既存 CLI・設定・台帳を保全し、必要時にローカル記録だけを読む。旧 TODO は実行しない。
+現在の開発窓口は Banana。開発は Codex を使い、レビュー worktree への引渡しは
+[Banana の開発手順](banana-engineering.md) に従う。
 Banana の廃止や Review 常設ホームへの移設は、最新 Owner 指示で撤回済み。
 旧切替 TODO を現在の自動実行指示にしない。
 

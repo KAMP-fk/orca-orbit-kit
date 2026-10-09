@@ -44,7 +44,7 @@ def main():
         workspace_display.verify(targets, workspace_display.call('worktree', 'list', '--limit', '1000'))
         workspace_display.confirm(handle)
         print(json.dumps({'activityTerminal': handle, 'state': 'read-only observer'}, ensure_ascii=False))
-    print('Setup ready: owned links installed. Devin connection and observed activity are shown in Activity; no agent was launched.')
+    print('Setup ready: owned links installed. Observed activity is shown in Activity; development uses Codex and Devin is not used. No agent was launched.')
     return 0
 
 

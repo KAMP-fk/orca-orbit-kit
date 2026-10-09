@@ -4,21 +4,29 @@ The Owner asked to handle `HANDOFF-agents-git-20261002.md`. Adopt option (3):
 version only the affected engineering sources, using two local repositories.
 
 - `/Users/kamp/orca`: allow `agents/team` and shared offline `tests`.
-  Root policy and the handoff are tracked. Other top-level paths are denied by default.
+  Root policy, directory guides, the completed handoff in `docs/history/`, and
+  `tools/ci/` sources are tracked. Local operations evidence in `docs/operations/`
+  and other top-level paths are denied by default. The old handoff root path is a
+  repository-relative compatibility link. The legacy root CI script and Dockerfile
+  are also repository-relative links, so existing invocations work in new checkouts.
 - `/Users/kamp/orca/agents/team/roles/tomato/skill`: Tomato's separate source repository.
   Its `.git` and complete history were moved with the directory; the outer Orca
   repository excludes this nested repository. Persona/brain remains outside it.
 
 The 2026-10-06 Owner instructions keep Tomato, Banana and Review as three roles.
-Banana owns engineering intake, Devin implementation and consolidated infrastructure
+Banana owns engineering intake, Codex implementation and consolidated infrastructure
 maintenance. Review stays independent and uses an on-demand project checkout.
 Shared helpers live in `agents/team/bin` and `lib`; role-specific sources live in
-`roles/tomato`, `roles/banana` and `roles/review`. Acceptance and relay sources now
-belong to `roles/review/acceptance` and `roles/review/relay`.
+`roles/tomato`, `roles/banana` and `roles/potato`. Acceptance and relay sources now
+belong to `roles/potato/acceptance` and `roles/potato/relay`; `roles/review` is the
+compatibility link and `review` remains the durable role ID.
 The old source locations are compatibility symlinks, excluded from new Git additions.
 Installed commands, skills, profiles and the owned startup block use canonical paths.
 Profile files do not replace the base Codex configuration. Historical/runtime content
-and unconfigured external Devin adapters keep their existing contracts.
+and unconfigured external Devin adapters are preserved. The Owner's 2026-10-07 JST
+policy excludes Devin from Orca workflows; preserved adapters are not an active
+implementation or fallback path. See `AGENTS.md` and
+`agents/team/references/banana-engineering.md` for the current policy.
 See `agents/team/references/directory-layout.md` for the actual paths and migration.
 
 This boundary lets the unified Banana role use its normal launcher from actual Git
@@ -47,3 +55,18 @@ commit. Add a new source root intentionally; never use `git add -f` for runtime 
 The 2026-10-06 consolidation keeps three local roles (Tomato, Banana, Review).
 Owned legacy Kiwi/Melon/Potato/Peach links are retired without deleting runtime history.
 Banana remains separate from independent review. See agents/team/references/agent-consolidation.md.
+
+## Private package boundary (2026-10-09)
+
+The Owner authorized a private GitHub source package and a single editing entry.
+This root is now the integration source. Orbit lives at apps/orbit, with the old
+~/Projects/orbit-console path retained locally as a link to the same source.
+Orbit and Tomato keep their own histories and active child worktrees as pinned
+private submodules. The root's gitlinks identify component versions; dirty component
+source appears in git status and git diff --submodule=diff. Commit and push the
+component first, then record its SHA here. No automatic commits or pushes.
+
+Packaging sources under scripts/, config/, docs/package/, the root LICENSE and
+THIRD_PARTY_NOTICES are allowed. Runtime/default-deny boundaries remain in effect.
+The earlier 'no remote / no publication requested' description is historical.
+Local before/ bundles and snapshots are preserved in ~/Reports, outside Git.

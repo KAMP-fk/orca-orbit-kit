@@ -6,9 +6,11 @@ import re
 import subprocess
 
 from devin_flow import Blocked, UNCONFIRMED_STATES, adapter, config, load_record, same_session
-from role_contract import local_orca_only, orca_command
+from role_contract import ROLES, local_orca_only, orca_command
 
 TITLE = 'Activity｜エージェント状況'
+SCREEN_HEADING = 'Orca エージェント状況'
+SCREEN_HEADINGS = (SCREEN_HEADING, 'Devin / Orca エージェント状況')
 
 
 def text(value):
@@ -121,15 +123,15 @@ def snapshot(config_path, devin_root, project_root, observe=False, native=None):
 
 
 def render(value):
-    lines = ['Devin / Orca エージェント状況',
-             '構成: Tomato（相談 / Fable） ⇄ Banana（開発 / Devin） → Potato（独立レビュー）',
-             'Devin 外部Issue連携: ' + value['connection'],
+    lines = [SCREEN_HEADING,
+             '構成: Tomato（相談 / ' + ROLES['tomato']['model'] + '） ⇄ Banana（開発 / Codex） → Potato（独立レビュー）',
+             'Devin 保存済み台帳（利用停止）: ' + value['connection'],
              'Orca: ' + value['orcaObservation'],
-             '開発: Banana / Devin CLI | 品質: Potato（CI・QA・独立レビュー・修正依頼）']
+             '開発: Banana / Codex | 品質: Potato（CI・QA・独立レビュー・修正依頼）']
     for row in value['devin']:
-        lines.append('Devin 外部案件 | ' + ' | '.join(f'{k}={v}' for k, v in row.items() if v is not None))
+        lines.append('Devin 保存済み案件 | ' + ' | '.join(f'{k}={v}' for k, v in row.items() if v is not None))
     if not value['devin']:
-        lines.append('Devin 外部案件: このrepoの実行記録なし（起動済みとは扱わない）')
+        lines.append('Devin 保存済み案件: このrepoの実行記録なし（起動済みとは扱わない）')
     for row in value['projects']:
         lines.append('Task | ' + ' | '.join(f'{k}={v}' for k, v in row.items() if v is not None))
     active = [row for row in value['agents'] if row['state'] != 'done']

@@ -12,6 +12,7 @@ import time
 import queue
 import re
 from role_contract import find_workspace, role_routing, home_role, role_label, ROLES
+from state_io import write_json
 
 
 
@@ -26,9 +27,7 @@ def call(orca, *args):
 
 
 def save(path, value):
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
-    temporary.replace(path)
+    write_json(path, value, indent=None, newline=False)
 
 
 def launch_task(role, command, cwd, environment, orca, metadata=False, workspace=None, collector=None,

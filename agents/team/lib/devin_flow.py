@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import tempfile
 import uuid
+from state_io import write_json
 
 UNCONFIRMED_STATES = ('start_pending', 'start_unknown', 'revision_pending', 'revision_unknown')
 RECORD_STATES = {*UNCONFIRMED_STATES, 'implementing', 'in_review', 'fixing',
@@ -25,22 +25,7 @@ class Blocked(RuntimeError):
 
 def save(path, value):
     """Persist the mutation fence before making a possibly billable external call."""
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as output:
-            temporary = Path(output.name)
-            json.dump(value, output, ensure_ascii=False)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        if temporary and temporary.exists():
-            temporary.unlink()
+    write_json(path, value, indent=None, newline=False, sync_directory=True)
 
 
 def config(path, connected=True):

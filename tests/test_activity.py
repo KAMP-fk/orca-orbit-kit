@@ -56,6 +56,16 @@ class ActivityTests(unittest.TestCase):
             self.assertNotIn(value, output)
         self.assertIn('| working |', output)
 
+    def test_current_development_path_and_retained_history_are_distinct(self):
+        self.record()
+        output = activity.render(self.snapshot())
+        self.assertTrue(output.startswith(activity.SCREEN_HEADING + '\n'))
+        self.assertIn('Banana（開発 / Codex）', output)
+        self.assertIn('開発: Banana / Codex', output)
+        self.assertIn('Devin 保存済み台帳（利用停止）', output)
+        self.assertIn('Devin 保存済み案件 |', output)
+        self.assertNotIn('Banana / Devin CLI', output)
+
     def test_remote_observation_cannot_mutate_controller_or_call_quality_gate(self):
         record = self.record(state='in_review')
         before = record.read_bytes()
@@ -185,9 +195,10 @@ class DisplayTests(unittest.TestCase):
                         '[' + (datetime.now(timezone.utc)-timedelta(minutes=5)).isoformat() + '] 観測']):
             with patch.object(display, 'call', return_value={'terminal':{'tail':lines}}):
                 self.assertFalse(display.healthy('observer'))
-        lines = ['[' + datetime.now(timezone.utc).isoformat() + '] 観測', 'Devin / Orca エージェント状況']
-        with patch.object(display, 'call', return_value={'terminal':{'tail':lines}}):
-            self.assertTrue(display.healthy('observer'))
+        for heading in activity.SCREEN_HEADINGS:
+            lines = ['[' + datetime.now(timezone.utc).isoformat() + '] 観測', heading]
+            with patch.object(display, 'call', return_value={'terminal':{'tail':lines}}):
+                self.assertTrue(display.healthy('observer'))
 
     def test_isolated_setup_never_accesses_live_orca(self):
         with tempfile.TemporaryDirectory() as folder:

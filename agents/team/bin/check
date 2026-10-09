@@ -15,24 +15,37 @@ esac
 rc=0
 step() { printf '\n== %s\n' "$1"; }
 
-step "python syntax (agents/team lib/bin/install.py, tests, tomato skill lib/tests)"
+step "python and JSON syntax (team sources, tests, tomato skill lib/tests)"
 python3 -B - "$TEAM" "$TOMATO" "$ROOT" <<'PY' || rc=1
-import ast, sys
+import ast, json, sys
 from pathlib import Path
 team, tomato, root = (Path(a) for a in sys.argv[1:4]); bad = 0
 files = list((team / 'lib').glob('*.py')) + [team / 'install.py']
 files += list((tomato / 'lib').glob('*.py')) + list((tomato / 'tests').glob('*.py')) + list((root / 'tests').glob('*.py'))
+files += list((team / 'roles/potato/acceptance/lib').glob('*.py'))
 for f in (team / 'bin').iterdir():
     if f.is_file() and f.read_bytes()[:40].startswith(b'#!') and b'python' in f.read_bytes()[:60]:
         files.append(f)
 for f in files:
     try: ast.parse(f.read_bytes(), filename=str(f))
     except SyntaxError as e: bad += 1; print('SYNTAX', f, e)
-print(f'{len(files)} python files, {bad} with errors'); sys.exit(1 if bad else 0)
+print(f'{len(files)} python files, {bad} with errors')
+configs = [team / 'roles.json'] + list((team / 'config').glob('*.json'))
+for role in ('tomato', 'potato'):
+    configs += list((team / 'roles' / role / 'claude').glob('*.json'))
+configs += list((team / 'roles/potato/acceptance/claude').glob('*.json'))
+for f in configs:
+    try: json.loads(f.read_text(encoding='utf-8'))
+    except (ValueError, OSError) as e: bad += 1; print('JSON', f, type(e).__name__)
+print(f'{len(configs)} JSON files checked'); sys.exit(1 if bad else 0)
 PY
 
-step "shell syntax (bin/check, tomato bin/watch, lib/*.sh, shell/*.zsh)"
-for f in "$TEAM/bin/check" "$TOMATO/bin/watch" "$TOMATO"/lib/*.sh; do
+step "shell syntax (shared, acceptance, relay, tomato, tools/ci and zsh)"
+for f in "$TEAM/bin/check" "$TOMATO/bin/watch" "$TOMATO"/lib/*.sh \
+         "$TEAM/roles/potato/acceptance/install.sh" \
+         "$TEAM/roles/potato/acceptance/bin/linear-inreview-reviewer" \
+         "$TEAM/roles/potato/acceptance/lib/"*.sh \
+         "$TEAM/roles/potato/relay/bin/review-relay" "$ROOT/tools/ci/"*.sh; do
   bash -n "$f" || { echo "SYNTAX $f"; rc=1; }
 done
 for f in "$TEAM"/shell/*.zsh; do

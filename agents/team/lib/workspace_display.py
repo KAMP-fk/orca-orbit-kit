@@ -6,7 +6,7 @@ import shlex
 import sys
 import time
 
-from activity import TITLE, call, complete
+from activity import TITLE, SCREEN_HEADINGS, call, complete
 from role_contract import ROOT, ROLES, workspace_root
 
 
@@ -14,7 +14,7 @@ def specs():
     home = Path.home()
     return [
         (ROOT.parent.parent, 'Orca｜エージェント基盤',
-         'Banana担当の共有基盤。ソースはagents/team、役別定義はroles。エージェント状況タブで稼働・Devin receipt・品質待ちを観測。', True),
+         'Banana担当の共有基盤。ソースはagents/team、役別定義はroles。開発はCodex。エージェント状況タブで稼働・保存済み記録・品質待ちを観測。Devinは利用しない。', True),
         (workspace_root('tomato'), ROLES['tomato']['workspace'],
          'Fable / medium で広い相談・意図・判断材料を整理。開発領域はBananaと依頼・質問・報告で連携。調査・実装はCodex。', True),
         (workspace_root('banana'), ROLES['banana']['workspace'],
@@ -92,7 +92,7 @@ def healthy(handle):
         if match:
             try:
                 age = (datetime.now(timezone.utc) - datetime.fromisoformat(match[1])).total_seconds()
-                return 0 <= age < 120 and 'Devin / Orca エージェント状況' in lines[index + 1:]
+                return 0 <= age < 120 and any(heading in lines[index + 1:] for heading in SCREEN_HEADINGS)
             except (ValueError, TypeError):
                 return False
     return False
@@ -134,7 +134,7 @@ def apply(targets, existing):
     if existing:
         return existing['handle']
     # Explicit model-free command. Root is not a dialogue auto-start home.
-    command = 'exec ' + shlex.join([sys.executable, '-B', str(ROOT / 'bin/activity'), '--observe-devin', '--screen'])
+    command = 'exec ' + shlex.join([sys.executable, '-B', str(ROOT / 'bin/activity'), '--screen'])
     result = call('terminal', 'create', '--worktree', 'id:' + targets[0]['id'],
                   '--title', TITLE, '--command', command)['terminal']
     if not isinstance(result.get('handle'), str):

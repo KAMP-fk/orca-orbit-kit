@@ -9,7 +9,7 @@
 | Orca｜エージェント基盤 | Banana担当の共有ソース。Activityタブでエージェントの変化を観測 |
 | Tomato｜相談・受け渡し | Fable / medium による幅広い相談・目的・判断材料。開発領域でBananaと連携 |
 | Potato案件worktree | 固定SHAの成果を独立確認・Bananaへの指摘 |
-| Banana｜開発・Devin窓口 | 開発案件の受領、Devin、レビューworktreeへの引渡し |
+| Banana｜開発窓口 | 開発案件の受領、Codex実装、レビューworktreeへの引渡し |
 | Skills｜スキル管理 | スキルの管理 |
 
 タイトル・コメントと Orca の親子メタデータを現行構成に合わせる。Tomato / Banana の常設ホームは独立表示。
@@ -48,14 +48,13 @@ Orcaのイベント時刻と今回の観測時刻を分け、過去のhook状態
 ```sh
 activity --once
 activity --json
-activity --observe-devin
-activity --observe-devin --screen
 ```
 
 - Orcaの全localカードのネイティブagent hook状態を取得。remote hostは対象外。
 - Devin controllerのIssue・Session・branch・PR・SHA・state・記録時刻を表示。
-- adapter接続設定が揃うと `--observe-devin` は既存Sessionへの `observe` だけを呼ぶ。
-  別Sessionの応答・取得失敗は未確認。unknown起動やdoneを再送・再開しない。
+- 2026-10-07 JST の Owner 指示により Devin は利用しない。通常観測は保存済みのローカル台帳だけを読む。
+  保全した `--observe-devin` は外部 adapter を呼ぶ旧機能で、現在の運用では使わない。
+  unknown 起動や done を再送・再開しない。
 - 基盤Taskのrole・stage・cleanup・worktree識別情報を表示。
 - プロンプト、tool入力、会話、feedback、認証値は表示しない。
 

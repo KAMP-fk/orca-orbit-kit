@@ -1,7 +1,8 @@
 # エージェント統合の初回記録（2026-10-06 JST）
 
 この記録は初回統合時点。Owner の追補により Banana を開発窓口として復帰し、
-現在は独立した Tomato ⇄ Banana（Devin組込）と、案件ごとの Review。
+現在は独立した Tomato ⇄ Banana（Codex 開発）と、案件ごとの Potato。
+2026-10-07 JST の Owner 指示により Devin は利用しない。
 現行は [Banana 統合](banana-engineering.md)。以下の表・ホーム数・検証は初回時点の記録。
 
 Owner の「いらないエージェントを統廃合」「合わせてリファクタリング」の直接依頼。

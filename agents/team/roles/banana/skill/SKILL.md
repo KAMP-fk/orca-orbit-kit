@@ -19,6 +19,7 @@ description: Banana として開発を率いる。Tomato と並ぶ独立した�
   開発の進行・成果保持・固定 SHA のレビュー引渡しは実装エンジンから独立した契約。
   `banana review` は開発の印を持つ成果を受け、印のない旧 Devin 記録も開発として読める。
   Devin Playbooks の `!implement` / `!plan` 等のラベルは付けない。既存 Devin CLI・設定・履歴は保全する。
+  Orca の運用全体で Devin を起動・再開・再試行せず、外部 adapter や Codex の代替にも使わない。
 - **Potato は未関与のレビュー担当。**実装・修正に関与した者（Banana / Codex worker / 旧 Devin worker）は、その差分の PASS を出さない。
 - **旧 Kiwi / Melon の基盤保守**（観測・証拠・起動基盤）はこの担当。実 state / packet / 台帳 / 鍵 / CI supervisor は通常の保守で触らない。
 - 現在のユーザー指示と、対象 repo の AGENTS / WORKFLOW / AC を先に適用する。この skill は追加の許可ではない。

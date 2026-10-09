@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import tempfile
 import uuid
+from state_io import write_json
 
 REPO = 'KAMP-fk/concafe-techo'
 DEFAULT_STORE = Path.home() / '.local/share/orbit-console'
@@ -46,17 +46,7 @@ def read(path):
 
 
 def write(path, value):
-    fd, temporary = tempfile.mkstemp(prefix='.delivery-', dir=path.parent)
-    try:
-        with os.fdopen(fd, 'w') as stream:
-            json.dump(value, stream, ensure_ascii=False, indent=2)
-            stream.write('\n')
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    write_json(path, value, prefix='.delivery-')
 
 
 @contextmanager

@@ -1,6 +1,7 @@
 # Banana → Devin / Orca 移行調査と責務表
 
-2026-10-05 JST の履歴。2026-10-06 の現行担当は [3役の契約](team-topology.md)。
+2026-10-05 JST の履歴。2026-10-07 JST の Owner 指示で Devin の利用は撤回済み。
+現行担当と Codex 開発経路は [3役の契約](team-topology.md)。
 以下の旧担当名は移行当時の記録で、新しい起動指示ではない。
 
 2026-10-05 JST。主対象は `/Users/kamp/orca`、関連は `concafe-techo` と

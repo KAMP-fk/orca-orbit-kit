@@ -13,11 +13,11 @@ import os
 from pathlib import Path
 import re
 import sys
-import tempfile
 import uuid
 
 from event_monitor import CONFIG, Client, collect_linear, collect_ci, pages, digest, utcnow
 from role_contract import find_workspace, local_orca_only, ROOT
+from state_io import write_json
 
 STATE_ROOT = Path.home() / '.local/share/named-team/continuation/concafe-techo'
 
@@ -28,17 +28,7 @@ def validate(config):
 
 
 def write(root, value):
-    fd, name = tempfile.mkstemp(prefix='.pending-', dir=root)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            json.dump(value, stream, ensure_ascii=False, indent=2)
-            stream.write('\n')
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(name, root / 'control.json')
-    finally:
-        if os.path.exists(name):
-            os.unlink(name)
+    write_json(root / 'control.json', value)
 
 
 def state_directory(root):

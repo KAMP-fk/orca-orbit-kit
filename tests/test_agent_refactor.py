@@ -10,7 +10,7 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REVIEWER = REPO_ROOT / 'agents/team/roles/potato/acceptance/bin/linear-inreview-reviewer'
-WATCH = Path('/Users/kamp/orca/agents/team/roles/tomato/skill/bin/watch')
+WATCH = Path(__file__).resolve().parents[1] / 'agents/team/roles/tomato/skill/bin/watch'
 SHA = 'a' * 40
 BASE_SHA = 'c' * 40
 MOCK = r'''#!/usr/bin/python3

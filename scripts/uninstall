@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Remove only links owned by the existing installer; preserve data and services.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+python3 "$root/agents/team/install.py" --uninstall
+echo 'Owned links removed. Source, auth, data and existing services are retained.'
+echo 'To remove the Orbit service explicitly: pnpm --dir apps/orbit service:remove'

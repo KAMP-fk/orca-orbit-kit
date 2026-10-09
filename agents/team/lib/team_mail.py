@@ -5,12 +5,11 @@ coordination record, not an authorization, review verdict or external notificati
 """
 import datetime as dt
 import json
-import os
 from pathlib import Path
 import re
-import tempfile
 import uuid
 from zoneinfo import ZoneInfo
+from state_io import publish_json
 
 ROLES = ('owner', 'tomato', 'banana', 'potato')
 JST = ZoneInfo('Asia/Tokyo')
@@ -27,17 +26,7 @@ def now():
 
 def publish(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix='.pending-', dir=path.parent)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            json.dump(value, stream, ensure_ascii=False, indent=2)
-            stream.write('\n')
-            stream.flush()
-            os.fsync(stream.fileno())
-        # Hard-link publication is atomic and refuses to overwrite an old receipt.
-        os.link(temporary, path)
-    finally:
-        os.unlink(temporary)
+    publish_json(path, value)
 
 
 def message(root, identifier):

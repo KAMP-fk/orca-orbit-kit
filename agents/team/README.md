@@ -24,13 +24,14 @@ Tomato ⇄ Banana → 開発 worktree（Codex）→ 固定 SHA の Potato worktr
 Banana が対象と完了条件を整え、Codex が調査・実装・検証・指摘修正を担当する。
 Orca は AC、現在 SHA、CI、必要な QA、独立レビュー、merge 後の完了確認を持つ。
 [ローカル開発とレビュー](references/banana-engineering.md) は Codex を使い、開発の進行は実装 backend から切り離す。
-別の [外部 Issue adapter](references/devin-operations.md) は既存状態を維持する。
+2026-10-07 JST の Owner 指示により、Orca の運用で Devin は利用しない。
+ローカル CLI、外部 Issue adapter、Linear Playbooks、automation のいずれからも
+Devin を起動・再開・再試行せず、Codex の代替にも使わない。`!implement` / `!plan` 等も付けない。
+別の [外部 Issue adapter](references/devin-operations.md) は既存状態を維持するが、利用経路から外す。
 未設定の adapter は exit 3 で停止し、fixture 成功を接続成功と扱わない。
 既存 vendor CLI を保全し、controller は `devin-flow` として配線する。
 
 ```sh
-devin-flow start --issue CAF-301 --config /private/config/devin.json
-devin-flow sync --issue CAF-301 --config /private/config/devin.json
 banana --inbox
 banana develop --repo /absolute/checkout --task-id feature-001 --from-role tomato --prompt-file /absolute/request.md --dry-run
 banana review --repo /absolute/checkout --task-id feature-001 --dry-run

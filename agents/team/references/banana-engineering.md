@@ -5,6 +5,9 @@ Tomato は幅広い相談・目的の整理、Banana は独立した開発窓口
 開発の指示・質問・報告で連携する。Owner は Banana に直接依頼できる。
 Potato は Banana が受け付けた案件の独立 checkout で必要時だけ起動する。
 旧 Kiwi / Melon の基盤保守を Banana にまとめ、名前付き担当は3役のままにする。
+同日の Owner 追補「orcaで、devinを利用しない方針にする」により、利用しない範囲は Orca の運用全体。
+ローカル CLI、外部 Issue adapter、Linear Playbooks、automation からも Devin を起動・再開・再試行せず、
+Codex の代替経路にしない。既存のローカル記録を必要時に読むことと、Devin に仕事を送ることを分ける。
 
 ```text
 Tomato ⇄ Banana
@@ -63,7 +66,7 @@ concafe は `final` の引渡し packet とし、対象プロジェクトの最�
 ## 外部 Issue adapter と既存実行
 
 既存 `devin-flow` / `banana devin start|sync|status|reconcile` は
-[外部 Issue adapter](devin-operations.md)。開発フローから外すが、CLI・設定・実装・台帳は保全する。Codex の案件とは別の台帳・排他契約を使う。
+[外部 Issue adapter](devin-operations.md)。Orca の利用経路から外すが、CLI・設定・実装・台帳は保全する。既存記録は Codex の案件とは別の台帳・排他契約を持つ。
 外部 adapter は未設定のまま。fixture の検査を実 Cloud Session / PR / merge の成功証拠にしない。
 同じ Issue に既存実行がある場合は新開始を重ねず、現物と担当を確認する。
 旧 coordinator・時計 automation・既存セッションはこの変更では停止・再起動していない。

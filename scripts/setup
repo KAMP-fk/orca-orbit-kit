@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Install only owned links. No login, agent startup, service or network changes.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+case "${1:-}" in
+  --check)
+    python3 "$root/scripts/doctor.py"
+    python3 "$root/agents/team/install.py" --check
+    exit ;;
+  "") ;;
+  *) echo 'usage: scripts/setup [--check]' >&2; exit 2 ;;
+esac
+python3 "$root/scripts/doctor.py"
+pnpm --dir "$root/apps/orbit" install --frozen-lockfile
+python3 "$root/agents/team/install.py"
+python3 - "$root/apps/orbit" <<'PY'
+import os
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+try:
+    fd = os.open(root / '.env', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+except FileExistsError:
+    print('Existing Orbit .env retained.')
+else:
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write((root / '.env.example').read_bytes())
+    print('Created local .env; set HTTPS origin and allowed users before tailnet access.')
+PY
+echo 'Owned links installed. Start Orbit, service and Tailscale through docs/package/INSTALL.md.'

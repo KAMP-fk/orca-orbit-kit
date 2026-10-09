@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show changes in Orca agents and Devin receipts without starting any work."""
+"""Show Orca agents, project tasks and retained receipts without starting work."""
 import argparse
 from datetime import datetime
 import json

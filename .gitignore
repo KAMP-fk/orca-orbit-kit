@@ -2,14 +2,35 @@
 /*
 !/.gitignore
 !/AGENTS.md
+!/README.md
 !/VERSION-CONTROL.md
 !/HANDOFF-agents-git-20261002.md
+!/concafe-act-validate.sh
+!/CONCAFE-ACT.Dockerfile
+!/docs/
+/docs/*
+!/docs/README.md
+!/docs/history/
+/docs/history/*
+!/docs/history/HANDOFF-agents-git-20261002.md
+!/tools/
+/tools/*
+!/tools/ci/
 !/agents/
 /agents/*
 !/agents/team/
-# Tomato remains a separate repository, including its existing Git history.
-/agents/team/roles/tomato/skill/
+# Tomato is an intentional source submodule with its existing Git history.
+!/agents/team/roles/tomato/skill/
 !/tests/
+!/scripts/
+!/config/
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
+!/.gitmodules
+!/apps/
+/apps/*
+!/apps/orbit/
+!/docs/package/
 
 # Runtime evidence, local verification output, and backups never enter history.
 **/state/
@@ -41,3 +62,13 @@
 **/.claude/
 **/credentials*
 **/auth.json
+
+# Examples are source; actual per-machine configuration stays private.
+!**/.env.example
+**/.git/
+**/dist/
+**/artifacts/
+**/test-results/
+
+/config/*
+!/config/*.example

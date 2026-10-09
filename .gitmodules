@@ -1,0 +1,6 @@
+[submodule "orbit-console"]
+	path = apps/orbit
+	url = https://github.com/KAMP-fk/orbit-console.git
+[submodule "tomato-skill"]
+	path = agents/team/roles/tomato/skill
+	url = https://github.com/KAMP-fk/tomato-skill.git
