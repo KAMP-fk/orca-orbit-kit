@@ -72,3 +72,4 @@
 
 /config/*
 !/config/*.example
+!/docs/package/BACKUP-RESTORE.md

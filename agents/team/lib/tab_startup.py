@@ -17,6 +17,14 @@ def block(root=ROOT):
 
 def plan(path, enable):
     path = Path(path)
+    if path.is_symlink() and not enable:
+        # Default installation never owns a dotfiles-managed shell config.
+        # Inspect for our block, but never replace or write through this link.
+        if path.exists() and not path.is_file():
+            raise ValueError('別の zshrc ファイル/リンクを保持したため中断: ' + str(path))
+        previous = path.read_bytes() if path.exists() else b''
+        if BEGIN.encode() not in previous and END.encode() not in previous:
+            return previous, previous
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise ValueError('別の zshrc ファイル/リンクを保持したため中断: ' + str(path))
     previous = path.read_bytes() if path.exists() else b''

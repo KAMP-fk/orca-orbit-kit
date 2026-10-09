@@ -198,6 +198,39 @@ with open(os.environ['NAMED_TAB_FIXTURE_LOG'], 'a') as output:
                 else:
                     self.assertIn('foreign command', config.read_text())
 
+    def test_default_uninstall_preserves_dotfiles_symlink_and_removes_owned_links(self):
+        for dangling in (False, True):
+            with self.subTest(dangling=dangling):
+                target = self.home / ('dangling-dotfiles' if dangling else 'dotfiles')
+                target.mkdir()
+                dotfile = self.home / ('missing-dotfile' if dangling else 'user-dotfile')
+                original = b'# user config\nexport CUSTOM_VALUE=preserved\n'
+                if not dangling:
+                    dotfile.write_bytes(original)
+                config = target / '.zshrc'
+                config.symlink_to(dotfile)
+                self.assertEqual(self.install(target).returncode, 0)
+                result = self.install(target, '--uninstall')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(config.is_symlink())
+                self.assertEqual(os.readlink(config), str(dotfile))
+                self.assertFalse((target / '.local/bin/banana').exists())
+                if not dangling:
+                    self.assertEqual(dotfile.read_bytes(), original)
+
+    def test_uninstall_does_not_write_owned_block_through_dotfiles_symlink(self):
+        target = self.home / 'linked-owned-block'
+        target.mkdir()
+        self.assertEqual(self.install(target, '--tab-autostart').returncode, 0)
+        config = target / '.zshrc'
+        original = config.read_bytes()
+        dotfile = self.home / 'moved-owned-dotfile'
+        config.rename(dotfile)
+        config.symlink_to(dotfile)
+        self.assertEqual(self.install(target, '--uninstall').returncode, 2)
+        self.assertTrue((target / '.local/bin/banana').is_symlink())
+        self.assertEqual(dotfile.read_bytes(), original)
+
 
 if __name__ == '__main__':
     unittest.main()

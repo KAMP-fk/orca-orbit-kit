@@ -76,7 +76,11 @@ in `/api/snapshot`; re-registering its service restarts the process.
 ## Remove
 
 `scripts/uninstall` removes only the existing installer's owned links and owned
-autostart block. It retains source, data, authentication and services. To explicitly
+autostart block. It retains source, data, authentication and services.
+Shell configuration managed by a symlink is preserved. If an owned autostart block
+was moved behind that symlink, remove the block in your dotfiles manager before
+uninstalling; the installer will not write through the link.
+To explicitly
 remove the Orbit LaunchAgent, use `pnpm --dir apps/orbit service:remove`. To stop a
 Serve endpoint, inspect the current Serve configuration and disable only that
 endpoint. Never reset an entire tailnet or delete role workspaces as an uninstall
